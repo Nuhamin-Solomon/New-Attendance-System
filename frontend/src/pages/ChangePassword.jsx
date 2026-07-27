@@ -1,0 +1,55 @@
+import { useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import Icon from "../components/Icon";
+
+export default function ChangePassword() {
+  const { forceChangePassword } = useAuth();
+  const [newPassword, setNewPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (newPassword !== confirm) { setError("Passwords do not match"); return; }
+    if (newPassword.length < 6) { setError("Password must be at least 6 characters"); return; }
+    setLoading(true);
+    try {
+      await forceChangePassword(newPassword);
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to change password");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="login-page">
+      <div className="login-orb orb-one" />
+      <div className="login-orb orb-two" />
+      <section className="login-card fade-in">
+        <div className="brand-mark brand-mark-lg">
+          <Icon name="shield" size={25} />
+        </div>
+        <p className="eyebrow">Security Required</p>
+        <h1>Change Your Password</h1>
+        <p className="login-intro">You must change your password before continuing. This is required for first-time login.</p>
+
+        {error && <div className="error-msg">{error}</div>}
+
+        <form onSubmit={handleSubmit}>
+          <label className="form-label" htmlFor="newPassword">New Password</label>
+          <input id="newPassword" className="form-input" type="password" placeholder="Enter new password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoFocus required />
+
+          <label className="form-label" htmlFor="confirm">Confirm Password</label>
+          <input id="confirm" className="form-input" type="password" placeholder="Confirm new password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+
+          <button className="login-btn" type="submit" disabled={loading}>
+            {loading ? "Changing..." : "Change Password & Continue"}
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}

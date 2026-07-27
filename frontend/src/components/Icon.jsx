@@ -7,13 +7,40 @@ const paths = {
   logout: "M10 17l5-5-5-5m5 5H3m10-8V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8v-1",
   search: "m21 21-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z",
   arrow: "M5 12h14m-6-6 6 6-6 6",
+  "arrow-right": "M5 12h14m-6-6 6 6-6 6",
+  "arrow-left": "M19 12H5m6 6-6-6 6-6",
   building: "M3 21h18M5 21V5l7-3 7 3v16M9 8h.01M15 8h.01M9 12h.01M15 12h.01M9 16h.01M15 16h.01",
   clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Zm0-16v6l4 2",
   database: "M20 6c0 2.2-3.6 4-8 4s-8-1.8-8-4 3.6-4 8-4 8 1.8 8 4Zm0 0v6c0 2.2-3.6 4-8 4s-8-1.8-8-4V6m16 6v6c0 2.2-3.6 4-8 4s-8-1.8-8-4v-6",
   plus: "M12 5v14M5 12h14",
   eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
+  team: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
+  calendar: "M8 2v4m8-4v4M3 9h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z",
+  "file-text": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8ZM14 2v6h6M16 13H8M16 17H8M10 9H8",
+  "check-circle": "M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3",
+  bell: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0",
+  shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z",
+  trending: "M23 6l-9.5 9.5-5-5L1 18",
+  bar: "M18 20V10M12 20V4M6 20v-6",
+  menu: "M3 12h18M3 6h18M3 18h18",
+  x: "M18 6 6 18M6 6l12 12",
+  download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
+  upload: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12",
+  printer: "M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z",
+  edit: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5Z",
+  trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
+  filter: "M22 3H2l8 9.46V19l4 2v-8.54L22 3Z",
+  "chevron-down": "M6 9l6 6 6-6",
+  "chevron-up": "M18 15l-6-6-6 6",
+  refresh: "M23 4v6h-6M1 20v-6h6M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15",
 };
 
 export default function Icon({ name, size = 18, stroke = true }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill={stroke ? "none" : "currentColor"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
+  const d = paths[name] || paths.dashboard;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={stroke ? "none" : "currentColor"}
+      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={d} />
+    </svg>
+  );
 }
