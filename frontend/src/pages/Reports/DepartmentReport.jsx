@@ -72,7 +72,7 @@ export default function DepartmentReport() {
       ];
 
       for (const emp of (data?.employees || [])) {
-        const row = [emp.employee_id, emp.employee_id, emp.full_name];
+        const row = [emp.card_id || emp.employee_id, emp.card_id || emp.employee_id, emp.full_name];
         const recMap = {};
         for (const rec of (emp.records || [])) recMap[rec.date] = rec;
         days.forEach((d) => {
@@ -137,7 +137,8 @@ export default function DepartmentReport() {
                 <thead>
                   <tr>
                     <th className="sticky-col">#</th>
-                    <th className="sticky-col-2">Employee</th>
+                    <th className="sticky-col-2">Employee ID</th>
+                    <th className="sticky-col-3">Employee</th>
                     {days.map((d) => (
                       <th key={d.key} colSpan={3} className="th-center th-day-header">
                         <div className="day-header-name">{d.dayName}</div>
@@ -147,7 +148,7 @@ export default function DepartmentReport() {
                     <th className="th-total">Total Hrs</th>
                   </tr>
                   <tr className="tr-subheader">
-                    <th /><th />
+                    <th /><th /><th />
                     {days.map((d) => (
                       <Fragment key={d.key + "-sub"}>
                         <th className="th-center th-sub">In</th>
@@ -168,7 +169,8 @@ export default function DepartmentReport() {
                       return (
                         <tr key={emp.employee_id}>
                           <td className="sticky-col td-muted">{i + 1}</td>
-                          <td className="sticky-col-2 strong-cell">{emp.full_name}</td>
+                          <td className="sticky-col-2 td-center">{emp.card_id || emp.employee_id}</td>
+                          <td className="sticky-col-3 strong-cell">{emp.full_name}</td>
                           {days.map((d) => {
                             const rec = recMap[d.key];
                             if (!rec) return <Fragment key={d.key}><td className="td-center"></td><td className="td-center"></td><td className="td-center"></td></Fragment>;

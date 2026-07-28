@@ -4,7 +4,7 @@ const pool = require("../config/db");
 exports.list = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT u.id, u.username, u.email, u.full_name, u.role, u.is_active, u.last_login, u.created_at,
+      `SELECT u.id, u.username, u.email, u.full_name, u.role, u.is_active, u.employee_id, u.last_login, u.created_at,
               e.full_name AS employee_name, e.department
        FROM users u
        LEFT JOIN employees e ON e.id = u.employee_id
@@ -68,12 +68,35 @@ exports.create = async (req, res) => {
 
 exports.update = async (req, res) => {
   try {
-    const { email, full_name, role, is_active, employee_id } = req.body;
+    const { username, email, full_name, role, is_active, employee_id } = req.body;
+    const targetId = req.params.id;
+
+    if (parseInt(targetId) === req.user.id && role !== undefined && role !== req.user.role) {
+      return res.status(400).json({ error: "Cannot change your own role" });
+    }
+
+    if (username !== undefined) {
+      const dup = await pool.query(
+        "SELECT id FROM users WHERE LOWER(username) = LOWER($1) AND id != $2",
+        [username, targetId]
+      );
+      if (dup.rows.length > 0) {
+        return res.status(409).json({ error: "Username already exists" });
+      }
+    }
+
     const result = await pool.query(
-      `UPDATE users SET email = COALESCE($1, email), full_name = COALESCE($2, full_name),
-       role = COALESCE($3, role), is_active = COALESCE($4, is_active), employee_id = COALESCE($5, employee_id), updated_at = NOW()
-       WHERE id = $6 RETURNING id, username, email, full_name, role, is_active`,
-      [email, full_name, role, is_active, employee_id, req.params.id]
+      `UPDATE users SET
+         username = COALESCE($1, username),
+         email = COALESCE($2, email),
+         full_name = COALESCE($3, full_name),
+         role = COALESCE($4, role),
+         is_active = COALESCE($5, is_active),
+         employee_id = COALESCE($6, employee_id),
+         updated_at = NOW()
+       WHERE id = $7
+       RETURNING id, username, email, full_name, role, is_active, employee_id`,
+      [username || null, email, full_name, role, is_active, employee_id, targetId]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "User not found" });
@@ -81,7 +104,7 @@ exports.update = async (req, res) => {
 
     await pool.query(
       "INSERT INTO audit_log (user_id, action, entity_type, entity_id, details) VALUES ($1, $2, $3, $4, $5)",
-      [req.user.id, "update_user", "user", req.params.id, JSON.stringify(req.body)]
+      [req.user.id, "update_user", "user", targetId, JSON.stringify(req.body)]
     );
 
     res.json(result.rows[0]);
@@ -116,6 +139,10 @@ exports.resetPassword = async (req, res) => {
 
 exports.remove = async (req, res) => {
   try {
+    if (parseInt(req.params.id) === req.user.id) {
+      return res.status(400).json({ error: "Cannot delete your own account" });
+    }
+
     const result = await pool.query("DELETE FROM users WHERE id = $1 RETURNING id, username", [req.params.id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "User not found" });

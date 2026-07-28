@@ -6,6 +6,6 @@ router.use(authenticate);
 
 router.get("/", authorize("hr", "admin", "manager"), ctrl.list);
 router.get("/my", ctrl.myAttendance);
-router.get("/my-team", authorize("manager"), ctrl.myTeam);
+router.get("/my-team", authorize("manager", "hr"), ctrl.myTeam);
 
 module.exports = router;

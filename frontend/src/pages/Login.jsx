@@ -6,6 +6,7 @@ export default function Login() {
   const { login } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -49,15 +50,20 @@ export default function Login() {
           />
 
           <label className="form-label" htmlFor="password">Password</label>
-          <input
-            id="password"
-            className="form-input"
-            placeholder="Enter your password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-          />
+          <div className="password-toggle">
+            <input
+              id="password"
+              className="form-input"
+              placeholder="Enter your password"
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+            />
+            <button type="button" className="password-toggle-btn" onClick={() => setShowPassword(!showPassword)} tabIndex={-1}>
+              <Icon name={showPassword ? "eye-off" : "eye"} size={16} />
+            </button>
+          </div>
 
           <div className="login-options">
             <label className="checkbox-label">

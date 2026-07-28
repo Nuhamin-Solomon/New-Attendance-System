@@ -1,10 +1,57 @@
 const pool = require("../config/db");
+const { getDepartmentFilter } = require("../utils/departmentFilter");
 
 const VALID_TYPES = [
   "field_duty", "official_travel", "client_visit", "training",
   "work_from_home", "meeting_outside", "missing_check_in",
   "missing_check_out", "forgotten_punch", "overtime", "other"
 ];
+
+const TYPE_LABELS = {
+  field_duty: "Field Duty", official_travel: "Official Travel",
+  client_visit: "Client Visit", training: "Training",
+  work_from_home: "Remote Work", meeting_outside: "Meeting Outside",
+  missing_check_in: "Missing Check-in", missing_check_out: "Missing Check-out",
+  forgotten_punch: "Forgotten Punch", overtime: "Overtime", other: "Other",
+};
+
+async function logAudit(userId, action, entityId, details) {
+  await pool.query(
+    "INSERT INTO audit_log (user_id, action, entity_type, entity_id, details) VALUES ($1, $2, 'attendance_request', $3, $4)",
+    [userId, action, entityId, details ? JSON.stringify(details) : null]
+  );
+}
+
+async function revertAttendanceSummary(employeeId, date) {
+  const logs = await pool.query(
+    `SELECT MIN(scan_time) AS first_in, MAX(scan_time) AS last_out, COUNT(*) AS scan_count
+     FROM attendance_logs
+     WHERE employee_id = $1 AND DATE(scan_time AT TIME ZONE 'Africa/Addis_Ababa') = $2`,
+    [employeeId, date]
+  );
+  const l = logs.rows[0];
+  if (l && parseInt(l.scan_count) > 0) {
+    const diffMs = new Date(l.last_out) - new Date(l.first_in);
+    const totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
+    const status = parseInt(l.scan_count) <= 1 ? "present_incomplete"
+      : totalHours >= 9 ? "present"
+      : totalHours >= 1 ? "present_partial" : "present_incomplete";
+    await pool.query(
+      `INSERT INTO attendance_summary (employee_id, date, first_in, last_out, total_hours, status, is_late, late_minutes)
+       VALUES ($1, $2, $3, $4, $5, $6, false, 0)
+       ON CONFLICT (employee_id, date) DO UPDATE SET
+         first_in = $3, last_out = $4, total_hours = $5, status = $6, notes = NULL, is_late = false, late_minutes = 0`,
+      [employeeId, date, l.first_in, l.last_out, totalHours, status]
+    );
+  } else {
+    await pool.query(
+      `INSERT INTO attendance_summary (employee_id, date, status)
+       VALUES ($1, $2, 'absent')
+       ON CONFLICT (employee_id, date) DO UPDATE SET status = 'absent', notes = NULL`,
+      [employeeId, date]
+    );
+  }
+}
 
 exports.list = async (req, res) => {
   try {
@@ -27,9 +74,13 @@ exports.list = async (req, res) => {
     } else if (employee_id) {
       query += ` AND ar.employee_id = $${idx++}`;
       params.push(employee_id);
-    } else if (req.user.role === "manager" && req.user.employee_department) {
-      query += ` AND e.department = $${idx++}`;
-      params.push(req.user.employee_department);
+    } else {
+      const deptFilter = getDepartmentFilter(req.user, idx);
+      if (deptFilter.clause) {
+        query += deptFilter.clause;
+        params.push(deptFilter.value);
+        idx = deptFilter.nextIdx;
+      }
     }
 
     if (status) { query += ` AND ar.status = $${idx++}`; params.push(status); }
@@ -51,6 +102,9 @@ exports.create = async (req, res) => {
     if (!request_type || !date) {
       return res.status(400).json({ error: "Request type and date are required" });
     }
+    if (!VALID_TYPES.includes(request_type)) {
+      return res.status(400).json({ error: "Invalid request type" });
+    }
 
     const result = await pool.query(
       `INSERT INTO attendance_requests (employee_id, request_type, date, start_time, end_time, location, reason, attachment_url)
@@ -58,23 +112,26 @@ exports.create = async (req, res) => {
       [employee_id, request_type, date, start_time || null, end_time || null, location || null, reason || null, attachment_url || null]
     );
 
-    const empResult = await pool.query("SELECT manager_id FROM employees WHERE id = $1", [employee_id]);
+    const created = result.rows[0];
+
+    const empResult = await pool.query("SELECT manager_id, full_name FROM employees WHERE id = $1", [employee_id]);
     const managerId = empResult.rows[0]?.manager_id;
+    const empName = empResult.rows[0]?.full_name || "An employee";
     if (managerId) {
       const mgrUser = await pool.query("SELECT id FROM users WHERE employee_id = $1", [managerId]);
       if (mgrUser.rows.length > 0) {
-        const empName = await pool.query("SELECT full_name FROM employees WHERE id = $1", [employee_id]);
         await pool.query(
-          `INSERT INTO notifications (user_id, title, message, type, link)
-           VALUES ($1, $2, $3, $4, $5)`,
+          `INSERT INTO notifications (user_id, title, message, type, link) VALUES ($1, $2, $3, $4, $5)`,
           [mgrUser.rows[0].id, "New Attendance Request",
-           `${empName.rows[0]?.full_name || "An employee"} submitted a ${request_type.replace(/_/g, " ")} request for review.`,
+           `${empName} submitted a ${TYPE_LABELS[request_type] || request_type} request for your approval.`,
            "approval", "/approvals"]
         );
       }
     }
 
-    res.status(201).json(result.rows[0]);
+    await logAudit(req.user.id, "create_request", created.id, { request_type, date, employee_id });
+
+    res.status(201).json(created);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -102,6 +159,8 @@ exports.update = async (req, res) => {
        attachment_url ?? ar.rows[0].attachment_url, req.params.id]
     );
 
+    await logAudit(req.user.id, "update_request", req.params.id, req.body);
+
     res.json(result.rows[0]);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -112,12 +171,13 @@ exports.cancel = async (req, res) => {
   try {
     const ar = await pool.query("SELECT * FROM attendance_requests WHERE id = $1", [req.params.id]);
     if (ar.rows.length === 0) return res.status(404).json({ error: "Request not found" });
+    const request = ar.rows[0];
 
-    if (req.user.role === "employee" && ar.rows[0].employee_id !== req.user.employee_id) {
+    if (req.user.role === "employee" && request.employee_id !== req.user.employee_id) {
       return res.status(403).json({ error: "Access denied" });
     }
-    if (ar.rows[0].status !== "pending") {
-      return res.status(400).json({ error: "Only pending requests can be cancelled" });
+    if (!["pending", "manager_approved"].includes(request.status)) {
+      return res.status(400).json({ error: "Only pending or manager-approved requests can be cancelled" });
     }
 
     const result = await pool.query(
@@ -125,6 +185,48 @@ exports.cancel = async (req, res) => {
        WHERE id = $1 RETURNING *`,
       [req.params.id]
     );
+
+    await logAudit(req.user.id, "cancel_request", req.params.id, { previous_status: request.status });
+
+    res.json(result.rows[0]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+exports.recall = async (req, res) => {
+  try {
+    const ar = await pool.query("SELECT * FROM attendance_requests WHERE id = $1", [req.params.id]);
+    if (ar.rows.length === 0) return res.status(404).json({ error: "Request not found" });
+    const request = ar.rows[0];
+
+    if (req.user.role === "employee" && request.employee_id !== req.user.employee_id) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+    if (request.status !== "approved") {
+      return res.status(400).json({ error: "Only approved requests can be recalled" });
+    }
+
+    const result = await pool.query(
+      `UPDATE attendance_requests SET status = 'recalled', updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [req.params.id]
+    );
+
+    if (request.date) {
+      await revertAttendanceSummary(request.employee_id, request.date);
+    }
+
+    await logAudit(req.user.id, "recall_request", req.params.id, { request_type: request.request_type, date: request.date });
+
+    const empUser = await pool.query("SELECT id FROM users WHERE employee_id = $1", [request.employee_id]);
+    if (empUser.rows.length > 0) {
+      await pool.query(
+        `INSERT INTO notifications (user_id, title, message, type, link) VALUES ($1, $2, $3, $4, $5)`,
+        [empUser.rows[0].id, "Request Recalled",
+         `Your ${TYPE_LABELS[request.request_type] || request.request_type} request for ${request.date} has been recalled.`,
+         "request_update", "/requests"]
+      );
+    }
 
     res.json(result.rows[0]);
   } catch (e) {
@@ -135,26 +237,53 @@ exports.cancel = async (req, res) => {
 exports.approveManager = async (req, res) => {
   try {
     const { status, comment } = req.body;
+    const ar = await pool.query("SELECT * FROM attendance_requests WHERE id = $1", [req.params.id]);
+    if (ar.rows.length === 0) return res.status(404).json({ error: "Request not found" });
+    const request = ar.rows[0];
+
+    if (request.status !== "pending") {
+      return res.status(400).json({ error: "Only pending requests can be reviewed by manager" });
+    }
+
+    const newStatus = status === "approved" ? "manager_approved" : "rejected";
     const result = await pool.query(
       `UPDATE attendance_requests
        SET manager_status = $1, manager_comment = $2, manager_approved_at = NOW(),
-           manager_id = $3, status = CASE WHEN $1 = 'approved' THEN 'manager_approved' ELSE 'rejected' END
-       WHERE id = $4 RETURNING *`,
-      [status, comment || null, req.user.id, req.params.id]
+           manager_id = $3, status = $4, updated_at = NOW()
+       WHERE id = $5 RETURNING *`,
+      [status, comment || null, req.user.id, newStatus, req.params.id]
     );
-    if (result.rows.length === 0) return res.status(404).json({ error: "Request not found" });
 
-    const ar = result.rows[0];
-    const empUser = await pool.query("SELECT id FROM users WHERE employee_id = $1", [ar.employee_id]);
+    const updated = result.rows[0];
+
+    const empUser = await pool.query("SELECT id FROM users WHERE employee_id = $1", [request.employee_id]);
     if (empUser.rows.length > 0) {
       await pool.query(
-        `INSERT INTO notifications (user_id, title, message, type, link)
-         VALUES ($1, $2, $3, $4, $5)`,
+        `INSERT INTO notifications (user_id, title, message, type, link) VALUES ($1, $2, $3, $4, $5)`,
         [empUser.rows[0].id, "Request Update",
-         `Your ${ar.request_type.replace(/_/g, " ")} request was ${status} by your manager.`,
+         `Your ${TYPE_LABELS[request.request_type] || request.request_type} request was ${status} by your manager.`,
          "request_update", "/requests"]
       );
     }
+
+    if (status === "approved") {
+      const emp = await pool.query("SELECT hr_id FROM employees WHERE id = $1", [request.employee_id]);
+      const hrEmpId = emp.rows[0]?.hr_id;
+      if (hrEmpId) {
+        const hrUser = await pool.query("SELECT id FROM users WHERE employee_id = $1", [hrEmpId]);
+        if (hrUser.rows.length > 0) {
+          const empName = await pool.query("SELECT full_name FROM employees WHERE id = $1", [request.employee_id]);
+          await pool.query(
+            `INSERT INTO notifications (user_id, title, message, type, link) VALUES ($1, $2, $3, $4, $5)`,
+            [hrUser.rows[0].id, "Request Needs HR Approval",
+             `${empName.rows[0]?.full_name || "An employee"}'s ${TYPE_LABELS[request.request_type] || request.request_type} request has been approved by the manager and needs your review.`,
+             "approval", "/approvals"]
+          );
+        }
+      }
+    }
+
+    await logAudit(req.user.id, `${status === "approved" ? "manager_approve" : "manager_reject"}_request`, req.params.id, { status, comment });
 
     res.json(result.rows[0]);
   } catch (e) {
@@ -165,37 +294,62 @@ exports.approveManager = async (req, res) => {
 exports.approveHR = async (req, res) => {
   try {
     const { status, comment } = req.body;
+    const ar = await pool.query("SELECT * FROM attendance_requests WHERE id = $1", [req.params.id]);
+    if (ar.rows.length === 0) return res.status(404).json({ error: "Request not found" });
+    const request = ar.rows[0];
+
+    if (request.status !== "manager_approved") {
+      return res.status(400).json({ error: "Only manager-approved requests can be reviewed by HR" });
+    }
+
     const newStatus = status === "approved" ? "approved" : "rejected";
     const result = await pool.query(
       `UPDATE attendance_requests
        SET hr_status = $1, hr_comment = $2, hr_approved_at = NOW(),
-           hr_id = $3, status = $4
+           hr_id = $3, status = $4, updated_at = NOW()
        WHERE id = $5 RETURNING *`,
       [status, comment || null, req.user.id, newStatus, req.params.id]
     );
-    if (result.rows.length === 0) return res.status(404).json({ error: "Request not found" });
 
-    const ar = result.rows[0];
-    if (newStatus === "approved" && ["field_duty", "official_travel", "client_visit", "training", "work_from_home", "meeting_outside"].includes(ar.request_type)) {
-      const noteText = ar.location || ar.request_type.replace(/_/g, " ");
-      await pool.query(
-        `INSERT INTO attendance_summary (employee_id, date, status, notes)
-         VALUES ($1, $2, 'approved', $3)
-         ON CONFLICT (employee_id, date) DO UPDATE SET status = 'approved', notes = $3`,
-        [ar.employee_id, ar.date, noteText]
-      );
+    const updated = result.rows[0];
+
+    if (newStatus === "approved" && request.date) {
+      const noteText = request.location || TYPE_LABELS[request.request_type] || request.request_type;
+      if (["missing_check_in", "missing_check_out", "forgotten_punch"].includes(request.request_type)) {
+        await revertAttendanceSummary(request.employee_id, request.date);
+        await pool.query(
+          `UPDATE attendance_summary SET status = 'present', notes = $3
+           WHERE employee_id = $1 AND date = $2`,
+          [request.employee_id, request.date, noteText]
+        );
+      } else if (request.request_type === "overtime") {
+        await pool.query(
+          `INSERT INTO attendance_summary (employee_id, date, status, notes)
+           VALUES ($1, $2, 'approved', $3)
+           ON CONFLICT (employee_id, date) DO UPDATE SET status = 'approved', notes = $3`,
+          [request.employee_id, request.date, "Overtime"]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO attendance_summary (employee_id, date, status, notes)
+           VALUES ($1, $2, 'approved', $3)
+           ON CONFLICT (employee_id, date) DO UPDATE SET status = 'approved', notes = $3`,
+          [request.employee_id, request.date, noteText]
+        );
+      }
     }
 
-    const empUser = await pool.query("SELECT id FROM users WHERE employee_id = $1", [ar.employee_id]);
+    const empUser = await pool.query("SELECT id FROM users WHERE employee_id = $1", [request.employee_id]);
     if (empUser.rows.length > 0) {
       await pool.query(
-        `INSERT INTO notifications (user_id, title, message, type, link)
-         VALUES ($1, $2, $3, $4, $5)`,
+        `INSERT INTO notifications (user_id, title, message, type, link) VALUES ($1, $2, $3, $4, $5)`,
         [empUser.rows[0].id, "Request Finalized",
-         `Your ${ar.request_type.replace(/_/g, " ")} request has been ${newStatus} by HR.`,
+         `Your ${TYPE_LABELS[request.request_type] || request.request_type} request has been ${newStatus} by HR.`,
          "request_update", "/requests"]
       );
     }
+
+    await logAudit(req.user.id, `${status === "approved" ? "hr_approve" : "hr_reject"}_request`, req.params.id, { status, comment });
 
     res.json(result.rows[0]);
   } catch (e) {

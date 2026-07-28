@@ -23,6 +23,7 @@ import MonthlyReportPage from "./pages/MonthlyReport";
 import DailyReportPage from "./pages/DailyReport";
 import DepartmentReportPage from "./pages/Reports/DepartmentReport";
 import UsersPage from "./pages/admin/Users";
+import DepartmentManagementPage from "./pages/admin/DepartmentManagement";
 import RolesPage from "./pages/admin/Roles";
 import SettingsPage from "./pages/admin/Settings";
 import AuditLogPage from "./pages/admin/AuditLog";
@@ -80,7 +81,7 @@ function AppRoutes() {
               <Route path="/my-attendance" element={<ProtectedRoute><MyAttendancePage /></ProtectedRoute>} />
               <Route path="/attendance-summary" element={<ProtectedRoute roles={["admin", "hr", "manager"]}><AttendanceSummaryPage /></ProtectedRoute>} />
               <Route path="/attendance-transactions" element={<ProtectedRoute roles={["admin", "hr"]}><AttendanceTransactionsPage /></ProtectedRoute>} />
-              <Route path="/my-team" element={<ProtectedRoute roles={["manager"]}><MyTeamPage /></ProtectedRoute>} />
+              <Route path="/my-team" element={<ProtectedRoute roles={["manager", "hr"]}><MyTeamPage /></ProtectedRoute>} />
               <Route path="/leave" element={<ProtectedRoute><LeavePage /></ProtectedRoute>} />
               <Route path="/requests" element={<ProtectedRoute><RequestsPage /></ProtectedRoute>} />
               <Route path="/my-requests" element={<ProtectedRoute><MyRequestsPage /></ProtectedRoute>} />
@@ -91,6 +92,7 @@ function AppRoutes() {
               <Route path="/department-report" element={<ProtectedRoute roles={["admin", "hr", "manager"]}><DepartmentReportPage /></ProtectedRoute>} />
               <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
               <Route path="/admin/users" element={<ProtectedRoute roles={["admin"]}><UsersPage /></ProtectedRoute>} />
+              <Route path="/admin/departments" element={<ProtectedRoute roles={["admin"]}><DepartmentManagementPage /></ProtectedRoute>} />
               <Route path="/admin/roles" element={<ProtectedRoute roles={["admin"]}><RolesPage /></ProtectedRoute>} />
               <Route path="/admin/settings" element={<ProtectedRoute roles={["admin"]}><SettingsPage /></ProtectedRoute>} />
               <Route path="/admin/audit" element={<ProtectedRoute roles={["admin"]}><AuditLogPage /></ProtectedRoute>} />

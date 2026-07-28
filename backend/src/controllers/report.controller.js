@@ -1,11 +1,5 @@
 const pool = require("../config/db");
-
-function getManagerDeptFilter(user, idx) {
-  if (user.role === "manager" && user.employee_department) {
-    return { clause: `AND e.department = $${idx}`, value: user.employee_department, nextIdx: idx + 1 };
-  }
-  return { clause: "", value: null, nextIdx: idx };
-}
+const { getDepartmentFilter } = require("../utils/departmentFilter");
 
 exports.daily = async (req, res) => {
   try {
@@ -16,7 +10,7 @@ exports.daily = async (req, res) => {
     let params = [date];
     let idx = 2;
 
-    const deptFilter = getManagerDeptFilter(req.user, idx);
+    const deptFilter = getDepartmentFilter(req.user, idx);
     if (deptFilter.clause) {
       whereExtra += deptFilter.clause;
       params.push(deptFilter.value);
@@ -29,7 +23,7 @@ exports.daily = async (req, res) => {
 
     const result = await pool.query(
       `SELECT
-        e.id AS employee_id, e.full_name, e.department,
+        e.id AS employee_id, e.card_id, e.full_name, e.department,
         TO_CHAR(asci.first_in, 'HH24:MI') AS check_in,
         TO_CHAR(asci.last_out, 'HH24:MI') AS check_out,
         asci.total_hours, asci.status, asci.notes,
@@ -62,7 +56,7 @@ exports.daily = async (req, res) => {
       }
 
       return {
-        employee_id: r.employee_id, full_name: r.full_name, department: r.department,
+        employee_id: r.employee_id, card_id: r.card_id, full_name: r.full_name, department: r.department,
         check_in: r.check_in || "", check_out: r.check_out || "",
         total_hours: r.total_hours || 0,
         missing_checkout: isMissingCheckout,
@@ -134,7 +128,7 @@ exports.weekly = async (req, res) => {
     let params = [dayKeys];
     let idx = 2;
 
-    const deptFilter = getManagerDeptFilter(req.user, idx);
+    const deptFilter = getDepartmentFilter(req.user, idx);
     if (deptFilter.clause) {
       whereExtra += deptFilter.clause;
       params.push(deptFilter.value);
@@ -147,7 +141,7 @@ exports.weekly = async (req, res) => {
 
     const result = await pool.query(
       `SELECT
-        e.id AS employee_id, e.full_name, e.department,
+        e.id AS employee_id, e.card_id, e.full_name, e.department,
         TO_CHAR(asci.date, 'YYYY-MM-DD') AS day_key,
         TO_CHAR(asci.first_in, 'HH24:MI') AS check_in,
         TO_CHAR(asci.last_out, 'HH24:MI') AS check_out,
@@ -166,6 +160,7 @@ exports.weekly = async (req, res) => {
       if (!grouped[row.employee_id]) {
         grouped[row.employee_id] = {
           employee_id: row.employee_id,
+          card_id: row.card_id,
           full_name: row.full_name,
           department: row.department,
           days: {},
@@ -242,7 +237,7 @@ exports.monthly = async (req, res) => {
     let params = [dayKeys];
     let idx = 2;
 
-    const deptFilter = getManagerDeptFilter(req.user, idx);
+    const deptFilter = getDepartmentFilter(req.user, idx);
     if (deptFilter.clause) {
       whereExtra += deptFilter.clause;
       params.push(deptFilter.value);
@@ -255,7 +250,7 @@ exports.monthly = async (req, res) => {
 
     const result = await pool.query(
       `SELECT
-        e.id AS employee_id, e.full_name, e.department,
+        e.id AS employee_id, e.card_id, e.full_name, e.department,
         TO_CHAR(asci.date, 'YYYY-MM-DD') AS day_key,
         TO_CHAR(asci.first_in, 'HH24:MI') AS check_in,
         TO_CHAR(asci.last_out, 'HH24:MI') AS check_out,
@@ -274,6 +269,7 @@ exports.monthly = async (req, res) => {
       if (!grouped[row.employee_id]) {
         grouped[row.employee_id] = {
           employee_id: row.employee_id,
+          card_id: row.card_id,
           full_name: row.full_name,
           department: row.department,
           days: {},
@@ -328,8 +324,11 @@ exports.department = async (req, res) => {
 
     let effectiveDept = department;
 
-    if (req.user.role === "manager" && req.user.employee_department) {
-      effectiveDept = req.user.employee_department;
+    if (req.user.role !== "admin" && req.user.assigned_departments && req.user.assigned_departments.length > 0) {
+      const assignedNames = req.user.assigned_departments.map((d) => d.department_name);
+      if (!effectiveDept || !assignedNames.includes(effectiveDept)) {
+        effectiveDept = assignedNames[0];
+      }
     }
 
     if (!effectiveDept) {
@@ -341,7 +340,7 @@ exports.department = async (req, res) => {
 
     const result = await pool.query(
       `SELECT
-        e.id AS employee_id, e.full_name, e.department,
+        e.id AS employee_id, e.card_id, e.full_name, e.department,
         TO_CHAR(asci.first_in, 'HH24:MI') AS check_in,
         TO_CHAR(asci.last_out, 'HH24:MI') AS check_out,
         asci.total_hours, asci.status, asci.notes,
@@ -359,6 +358,7 @@ exports.department = async (req, res) => {
       if (!empMap[row.employee_id]) {
         empMap[row.employee_id] = {
           employee_id: row.employee_id,
+          card_id: row.card_id,
           full_name: row.full_name,
           department: row.department,
           records: [],
@@ -408,31 +408,34 @@ exports.dashboardStats = async (req, res) => {
     const todayResult = await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Addis_Ababa')::date AS today");
     const today = todayResult.rows[0].today;
 
-    const isManager = req.user.role === "manager" && req.user.employee_department;
-    const mgrDept = req.user.employee_department;
-    const deptWhere = isManager ? `AND e.department = $2` : "";
-    const empCountParams = isManager ? [today, mgrDept] : [today];
+    const isAdmin = req.user.role === "admin";
+    const assignedDepts = req.user.assigned_departments || [];
+    const hasDeptFilter = !isAdmin && assignedDepts.length > 0;
+    const deptNames = assignedDepts.map((d) => d.department_name);
 
-    const empCount = isManager
-      ? await pool.query(`SELECT COUNT(*) FROM employees WHERE status = 'active' AND department = $1`, [mgrDept])
-      : await pool.query(`SELECT COUNT(*) FROM employees WHERE status = 'active'`);
-    const totalEmps = parseInt(empCount.rows[0].count);
+    let totalEmps;
+    if (isAdmin) {
+      totalEmps = parseInt((await pool.query(`SELECT COUNT(*) FROM employees WHERE status = 'active'`)).rows[0].count);
+    } else if (hasDeptFilter) {
+      totalEmps = parseInt((await pool.query(`SELECT COUNT(*) FROM employees WHERE status = 'active' AND department = ANY($1)`, [deptNames])).rows[0].count);
+    } else {
+      totalEmps = 0;
+    }
 
     let todaySummary;
-    if (isManager) {
+    if (isAdmin) {
+      todaySummary = await pool.query(`SELECT status, COUNT(*) AS count FROM attendance_summary WHERE date = $1 GROUP BY status`, [today]);
+    } else if (hasDeptFilter) {
       todaySummary = await pool.query(
         `SELECT asci.status, COUNT(*) AS count
          FROM attendance_summary asci
          JOIN employees e ON e.id = asci.employee_id
-         WHERE asci.date = $1 AND e.department = $2 AND e.status = 'active'
+         WHERE asci.date = $1 AND e.department = ANY($2) AND e.status = 'active'
          GROUP BY asci.status`,
-        [today, mgrDept]
+        [today, deptNames]
       );
     } else {
-      todaySummary = await pool.query(
-        `SELECT status, COUNT(*) AS count FROM attendance_summary WHERE date = $1 GROUP BY status`,
-        [today]
-      );
+      todaySummary = { rows: [] };
     }
 
     const statusCounts = {};
@@ -445,60 +448,74 @@ exports.dashboardStats = async (req, res) => {
       statusCounts.absent = (statusCounts.absent || 0) + (totalEmps - totalAccounted);
     }
 
-    const deptStats = isManager
-      ? await pool.query(
-          `SELECT e.department,
-                  COUNT(*) AS total,
-                  SUM(CASE WHEN asci.status NOT IN ('absent', 'approved') THEN 1 ELSE 0 END) AS present
-           FROM employees e
-           LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date = $1
-           WHERE e.department = $2 AND e.status = 'active'
-           GROUP BY e.department ORDER BY total DESC`,
-          [today, mgrDept]
-        )
-      : await pool.query(
-          `SELECT e.department,
-                  COUNT(*) AS total,
-                  SUM(CASE WHEN asci.status NOT IN ('absent', 'approved') THEN 1 ELSE 0 END) AS present
-           FROM employees e
-           LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date = $1
-           WHERE e.department IS NOT NULL AND e.status = 'active'
-           GROUP BY e.department ORDER BY total DESC`,
-          [today]
-        );
+    let deptStats;
+    if (isAdmin) {
+      deptStats = await pool.query(
+        `SELECT e.department,
+                COUNT(*) AS total,
+                SUM(CASE WHEN asci.status NOT IN ('absent', 'approved') THEN 1 ELSE 0 END) AS present
+         FROM employees e
+         LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date = $1
+         WHERE e.department IS NOT NULL AND e.status = 'active'
+         GROUP BY e.department ORDER BY total DESC`,
+        [today]
+      );
+    } else if (hasDeptFilter) {
+      deptStats = await pool.query(
+        `SELECT e.department,
+                COUNT(*) AS total,
+                SUM(CASE WHEN asci.status NOT IN ('absent', 'approved') THEN 1 ELSE 0 END) AS present
+         FROM employees e
+         LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date = $1
+         WHERE e.department = ANY($2) AND e.status = 'active'
+         GROUP BY e.department ORDER BY total DESC`,
+        [today, deptNames]
+      );
+    } else {
+      deptStats = { rows: [] };
+    }
 
-    const trend = isManager
-      ? await pool.query(
-          `SELECT TO_CHAR(t.date, 'YYYY-MM-DD') AS date_key, t.status, COUNT(*) AS count
-           FROM attendance_summary t
-           JOIN employees e ON e.id = t.employee_id
-           WHERE t.date >= $1 AND e.department = $2 AND e.status = 'active'
-           GROUP BY t.date, t.status ORDER BY t.date`,
-          [new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0], mgrDept]
-        )
-      : await pool.query(
-          `SELECT TO_CHAR(date, 'YYYY-MM-DD') AS date_key, status, COUNT(*) AS count
-           FROM attendance_summary
-           WHERE date >= $1
-           GROUP BY date, status ORDER BY date`,
-          [new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0]]
-        );
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+    let trend;
+    if (isAdmin) {
+      trend = await pool.query(
+        `SELECT TO_CHAR(date, 'YYYY-MM-DD') AS date_key, status, COUNT(*) AS count
+         FROM attendance_summary WHERE date >= $1 GROUP BY date, status ORDER BY date`,
+        [thirtyDaysAgo]
+      );
+    } else if (hasDeptFilter) {
+      trend = await pool.query(
+        `SELECT TO_CHAR(t.date, 'YYYY-MM-DD') AS date_key, t.status, COUNT(*) AS count
+         FROM attendance_summary t
+         JOIN employees e ON e.id = t.employee_id
+         WHERE t.date >= $1 AND e.department = ANY($2) AND e.status = 'active'
+         GROUP BY t.date, t.status ORDER BY t.date`,
+        [thirtyDaysAgo, deptNames]
+      );
+    } else {
+      trend = { rows: [] };
+    }
 
-    const recentRequests = isManager
-      ? await pool.query(
-          `SELECT ar.*, e.full_name AS employee_name
-           FROM attendance_requests ar
-           JOIN employees e ON e.id = ar.employee_id
-           WHERE e.department = $1
-           ORDER BY ar.created_at DESC LIMIT 5`,
-          [mgrDept]
-        )
-      : await pool.query(
-          `SELECT ar.*, e.full_name AS employee_name
-           FROM attendance_requests ar
-           JOIN employees e ON e.id = ar.employee_id
-           ORDER BY ar.created_at DESC LIMIT 5`
-        );
+    let recentRequests;
+    if (isAdmin) {
+      recentRequests = await pool.query(
+        `SELECT ar.*, e.full_name AS employee_name
+         FROM attendance_requests ar
+         JOIN employees e ON e.id = ar.employee_id
+         ORDER BY ar.created_at DESC LIMIT 5`
+      );
+    } else if (hasDeptFilter) {
+      recentRequests = await pool.query(
+        `SELECT ar.*, e.full_name AS employee_name
+         FROM attendance_requests ar
+         JOIN employees e ON e.id = ar.employee_id
+         WHERE e.department = ANY($1)
+         ORDER BY ar.created_at DESC LIMIT 5`,
+        [deptNames]
+      );
+    } else {
+      recentRequests = { rows: [] };
+    }
 
     res.json({
       total_employees: totalEmps,

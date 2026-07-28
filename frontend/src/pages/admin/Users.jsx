@@ -1,6 +1,71 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import API from "../../services/api";
 import Icon from "../../components/Icon";
+
+function SearchableSelect({ items, value, onChange, placeholder, searchFields, displayField, idField }) {
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+  const selected = items.find((i) => String(i[idField]) === String(value));
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return items.filter((item) => !q || searchFields.some((f) => String(item[f] || "").toLowerCase().includes(q)));
+  }, [items, search, searchFields]);
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", border: "1px solid var(--border, #e2e8f0)", borderRadius: 8,
+          background: "var(--input-bg, #fff)", cursor: "pointer", minHeight: 38,
+        }}
+      >
+        <span style={{ color: selected ? "var(--text)" : "var(--text-muted)", fontSize: 14 }}>
+          {selected ? selected[displayField] : placeholder}
+        </span>
+        <Icon name={open ? "x" : "chevron-down"} size={14} style={{ color: "var(--text-muted)" }} />
+      </div>
+      {open && (
+        <div style={{ position: "absolute", zIndex: 50, top: "100%", left: 0, right: 0, marginTop: 4, background: "var(--card, #fff)", border: "1px solid var(--border, #e2e8f0)", borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
+          <div style={{ padding: 8, borderBottom: "1px solid var(--border, #e2e8f0)" }}>
+            <input
+              autoFocus
+              className="form-input"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Type to search..."
+              style={{ fontSize: 13 }}
+            />
+          </div>
+          <div style={{ maxHeight: 200, overflowY: "auto" }}>
+            <div
+              onClick={() => { onChange(null); setOpen(false); setSearch(""); }}
+              style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: "var(--text-muted)", borderBottom: "1px solid var(--border, #f0f0f0)" }}
+            >
+              {placeholder}
+            </div>
+            {filtered.map((item) => (
+              <div
+                key={item[idField]}
+                onClick={() => { onChange(item[idField]); setOpen(false); setSearch(""); }}
+                style={{
+                  padding: "8px 12px", cursor: "pointer", fontSize: 14,
+                  background: String(item[idField]) === String(value) ? "var(--primary-light, rgba(2,64,79,0.08))" : "transparent",
+                  borderBottom: "1px solid var(--border, #f0f0f0)",
+                }}
+              >
+                {item[displayField]}
+              </div>
+            ))}
+            {filtered.length === 0 && <div style={{ padding: 12, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>No results found</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Users() {
   const [users, setUsers] = useState([]);
@@ -9,7 +74,9 @@ export default function Users() {
   const [showForm, setShowForm] = useState(false);
   const [editUser, setEditUser] = useState(null);
   const [form, setForm] = useState({ username: "", password: "", email: "", full_name: "", role: "employee", employee_id: "" });
+  const [showPassword, setShowPassword] = useState(false);
   const [filter, setFilter] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [resetModal, setResetModal] = useState(null);
   const [resetPw, setResetPw] = useState("");
@@ -28,6 +95,7 @@ export default function Users() {
     setForm({ username: "", password: "", email: "", full_name: "", role: "employee", employee_id: "" });
     setEditUser(null);
     setShowForm(false);
+    setShowPassword(false);
   };
 
   const handleCreate = async (e) => {
@@ -51,6 +119,7 @@ export default function Users() {
       full_name: user.full_name || "",
       role: user.role,
       employee_id: user.employee_id || "",
+      is_active: user.is_active,
     });
     setShowForm(true);
   };
@@ -59,9 +128,11 @@ export default function Users() {
     e.preventDefault();
     try {
       const payload = {
+        username: form.username || null,
         email: form.email || null,
         full_name: form.full_name || null,
         role: form.role,
+        is_active: form.is_active,
         employee_id: form.employee_id ? parseInt(form.employee_id) : null,
       };
       await API.put(`/users/${editUser.id}`, payload);
@@ -108,9 +179,17 @@ export default function Users() {
     return emp ? emp.department : null;
   };
 
-  const filteredUsers = filter
+  const roleFiltered = filter
     ? users.filter((u) => u.role === filter || (filter === "active" ? u.is_active : filter === "disabled" ? !u.is_active : true))
     : users;
+
+  const filteredUsers = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    if (!q) return roleFiltered;
+    return roleFiltered.filter((u) =>
+      [u.username, u.full_name, u.email, u.role, u.employee_name, u.department].some((v) => String(v || "").toLowerCase().includes(q))
+    );
+  }, [roleFiltered, searchQuery]);
 
   return (
     <div className="page-container">
@@ -125,11 +204,20 @@ export default function Users() {
         <div className="panel" style={{ marginBottom: 24 }}>
           <div className="panel-header"><div className="panel-title">{editUser ? `Edit User: ${editUser.username}` : "Create New User"}</div></div>
           <form onSubmit={editUser ? handleUpdate : handleCreate} className="form-grid form-grid-4">
+            <div>
+              <label className="form-label">Username *</label>
+              <input className="form-input" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
+            </div>
             {!editUser && (
-              <div><label className="form-label">Username *</label><input className="form-input" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required /></div>
-            )}
-            {!editUser && (
-              <div><label className="form-label">Password *</label><input className="form-input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></div>
+              <div>
+                <label className="form-label">Password *</label>
+                <div className="password-toggle">
+                  <input className="form-input" type={showPassword ? "text" : "password"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+                  <button type="button" className="password-toggle-btn" onClick={() => setShowPassword(!showPassword)} tabIndex={-1}>
+                    <Icon name={showPassword ? "eye-off" : "eye"} size={16} />
+                  </button>
+                </div>
+              </div>
             )}
             <div><label className="form-label">Full Name</label><input className="form-input" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></div>
             <div><label className="form-label">Email</label><input className="form-input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
@@ -144,15 +232,41 @@ export default function Users() {
             </div>
             <div>
               <label className="form-label">Employee Record</label>
-              <select className="form-input" value={form.employee_id} onChange={(e) => setForm({ ...form, employee_id: e.target.value })}>
-                <option value="">None (No Employee Linked)</option>
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>{emp.full_name} ({emp.department || "No Dept"})</option>
-                ))}
-              </select>
+              <SearchableSelect
+                items={employees.map((e) => ({ ...e, label: `${e.full_name} (${e.department || "No Dept"})` }))}
+                value={form.employee_id}
+                onChange={(val) => setForm({ ...form, employee_id: val || "" })}
+                placeholder="None (No Employee Linked)"
+                searchFields={["full_name", "department", "card_id", "position"]}
+                displayField="label"
+                idField="id"
+              />
             </div>
             {form.employee_id && getEmployeeDept(parseInt(form.employee_id)) && (
               <div><label className="form-label">Department (from Employee)</label><input className="form-input" value={getEmployeeDept(parseInt(form.employee_id))} disabled /></div>
+            )}
+            {editUser && (
+              <div>
+                <label className="form-label">Account Status</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, height: 38 }}>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, is_active: !form.is_active })}
+                    style={{
+                      width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer",
+                      background: form.is_active ? "var(--success, #10b981)" : "var(--text-muted, #94a3b8)",
+                      position: "relative", transition: "background 0.2s",
+                    }}
+                  >
+                    <span style={{
+                      position: "absolute", top: 2, left: form.is_active ? 22 : 2,
+                      width: 20, height: 20, borderRadius: 10, background: "#fff",
+                      transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                    }} />
+                  </button>
+                  <span style={{ fontSize: 13, color: "var(--text)" }}>{form.is_active ? "Active" : "Disabled"}</span>
+                </div>
+              </div>
             )}
             <div style={{ alignSelf: "end", display: "flex", gap: 8 }}>
               <button className="btn btn-primary" type="submit">{editUser ? "Update User" : "Create User"}</button>
@@ -170,7 +284,10 @@ export default function Users() {
             </button>
           ))}
         </div>
-        <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{filteredUsers.length} users</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{filteredUsers.length} users</span>
+          <label className="search-bar"><Icon name="search" size={16} /><input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search users..." /></label>
+        </div>
       </div>
 
       <div className="panel">

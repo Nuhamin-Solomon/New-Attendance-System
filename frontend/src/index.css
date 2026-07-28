@@ -172,6 +172,10 @@ tbody tr:hover { background: #fafbff; }
 .form-input:focus { border-color: var(--secondary); box-shadow: 0 0 0 3px rgba(235,125,35,.1); }
 .form-input::placeholder { color: #a7afbf; }
 .form-input-sm { padding: 7px 10px; font-size: 12px; width: auto; min-width: 140px; }
+.password-toggle { position: relative; }
+.password-toggle .form-input { padding-right: 40px; }
+.password-toggle-btn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 4px; display: flex; align-items: center; }
+.password-toggle-btn:hover { color: var(--primary); }
 .form-select-sm { min-width: 160px; }
 .form-grid { padding: 16px 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-grid-4 { grid-template-columns: repeat(4, 1fr); }

@@ -10,7 +10,9 @@ router.get("/", ctrl.list);
 router.post("/", ctrl.create);
 router.put("/:id", ctrl.update);
 router.put("/:id/cancel", ctrl.cancel);
-router.put("/:id/approve", authorize("hr", "admin"), ctrl.approve);
+router.put("/:id/recall", ctrl.recall);
+router.put("/:id/manager", authorize("manager", "hr", "admin"), ctrl.approveManager);
+router.put("/:id/hr", authorize("hr", "admin"), ctrl.approveHR);
 router.put("/:id/reject", authorize("hr", "admin"), ctrl.reject);
 
 module.exports = router;

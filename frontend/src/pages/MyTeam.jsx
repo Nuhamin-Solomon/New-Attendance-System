@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
 
@@ -11,6 +11,7 @@ export default function MyTeam() {
   const [team, setTeam] = useState([]);
   const [pending, setPending] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     API.get("/summary/my-team").then((r) => { setTeam(r.data.team); setPending(r.data.pending_requests); }).catch(() => {}).finally(() => setLoading(false));
@@ -18,6 +19,18 @@ export default function MyTeam() {
 
   const present = team.filter((t) => t.status === "present" || t.status === "late").length;
   const absent = team.filter((t) => t.status === "absent").length;
+
+  const filteredTeam = useMemo(() => {
+    const q = query.toLowerCase();
+    if (!q) return team;
+    return team.filter((t) => [t.full_name, t.position, t.status].some((v) => String(v || "").toLowerCase().includes(q)));
+  }, [team, query]);
+
+  const filteredPending = useMemo(() => {
+    const q = query.toLowerCase();
+    if (!q) return pending;
+    return pending.filter((r) => [r.employee_name, r.request_type, r.reason].some((v) => String(v || "").toLowerCase().includes(q)));
+  }, [pending, query]);
 
   return (
     <div className="page-container">
@@ -32,13 +45,16 @@ export default function MyTeam() {
       </div>
 
       <div className="panel">
-        <div className="panel-header"><div className="panel-title">Team Members</div></div>
+        <div className="panel-header">
+          <div className="panel-title">Team Members</div>
+          <label className="search-bar"><Icon name="search" size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search team..." /></label>
+        </div>
         <div className="table-wrap">
           <table>
             <thead><tr><th>Employee</th><th>Position</th><th>Check In</th><th>Check Out</th><th>Hours</th><th>Status</th></tr></thead>
             <tbody>
               {loading ? <tr><td colSpan="6" className="table-message">Loading...</td></tr>
-              : team.length ? team.map((t) => (
+              : filteredTeam.length ? filteredTeam.map((t) => (
                 <tr key={t.id}>
                   <td className="strong-cell">{t.full_name}</td>
                   <td className="td-muted">{t.position || "—"}</td>
@@ -53,14 +69,14 @@ export default function MyTeam() {
         </div>
       </div>
 
-      {pending.length > 0 && (
+      {filteredPending.length > 0 && (
         <div className="panel">
-          <div className="panel-header"><div className="panel-title">Pending Requests</div><div className="panel-subtitle">{pending.length} requests awaiting your approval</div></div>
+          <div className="panel-header"><div className="panel-title">Pending Requests</div><div className="panel-subtitle">{filteredPending.length} requests awaiting your approval</div></div>
           <div className="table-wrap">
             <table>
               <thead><tr><th>Employee</th><th>Type</th><th>Date</th><th>Reason</th><th>Status</th></tr></thead>
               <tbody>
-                {pending.map((r) => (
+                {filteredPending.map((r) => (
                   <tr key={r.id}>
                     <td className="strong-cell">{r.employee_name}</td>
                     <td><span className="badge badge-blue">{r.request_type.replace("_", " ")}</span></td>

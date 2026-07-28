@@ -39,6 +39,15 @@ async function authenticate(req, res, next) {
       req.user.employee_department = row.employee_department;
     }
 
+    const deptAssignments = await pool.query(
+      `SELECT da.id AS assignment_id, da.assignment_type, d.id AS department_id, d.name AS department_name
+       FROM department_assignments da
+       JOIN departments d ON d.id = da.department_id
+       WHERE da.user_id = $1`,
+      [decoded.id]
+    );
+    req.user.assigned_departments = deptAssignments.rows;
+
     next();
   } catch (e) {
     return res.status(401).json({ error: "Invalid or expired token" });

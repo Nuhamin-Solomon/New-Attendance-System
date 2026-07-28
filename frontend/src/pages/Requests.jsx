@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
 
@@ -24,6 +24,7 @@ export default function Requests() {
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState(null);
   const [filter, setFilter] = useState("all");
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
   const load = () => { API.get("/requests").then((r) => setRequests(r.data)).catch(() => {}).finally(() => setLoading(false)); };
@@ -57,8 +58,16 @@ export default function Requests() {
     try { await API.put(`/requests/${id}/cancel`); load(); } catch (err) { alert(err.response?.data?.error || "Failed"); }
   };
 
-  const filtered = filter === "all" ? requests : requests.filter((r) => r.status === filter);
+  const statusFiltered = filter === "all" ? requests : requests.filter((r) => r.status === filter);
   const pendingCount = requests.filter((r) => r.status === "pending").length;
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase();
+    if (!q) return statusFiltered;
+    return statusFiltered.filter((r) =>
+      [r.request_type, r.reason, r.location, r.status, r.manager_status, r.hr_status].some((v) => String(v || "").toLowerCase().includes(q))
+    );
+  }, [statusFiltered, query]);
 
   const statusBadge = (s) => {
     const map = { approved: "green", manager_approved: "teal", rejected: "red", pending: "orange" };
@@ -99,11 +108,14 @@ export default function Requests() {
       )}
 
       <div className="panel-actions-row no-print">
-        {["all", "pending", "manager_approved", "approved", "rejected"].map((f) => (
-          <button key={f} className={`btn btn-sm ${filter === f ? "btn-primary" : "btn-ghost"}`} onClick={() => setFilter(f)}>
-            {f === "all" ? `All (${requests.length})` : `${f.replace(/_/g, " ")} (${requests.filter((r) => r.status === f).length})`}
-          </button>
-        ))}
+        <div style={{ display: "flex", gap: "6px" }}>
+          {["all", "pending", "manager_approved", "approved", "rejected"].map((f) => (
+            <button key={f} className={`btn btn-sm ${filter === f ? "btn-primary" : "btn-ghost"}`} onClick={() => setFilter(f)}>
+              {f === "all" ? `All (${requests.length})` : `${f.replace(/_/g, " ")} (${requests.filter((r) => r.status === f).length})`}
+            </button>
+          ))}
+        </div>
+        <label className="search-bar"><Icon name="search" size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search requests..." /></label>
       </div>
 
       <div className="panel report-panel">
@@ -118,9 +130,9 @@ export default function Requests() {
                 <tr key={r.id}>
                   <td><span className="badge badge-blue">{r.request_type.replace(/_/g, " ")}</span></td>
                   <td className="td-muted">{new Date(r.date).toLocaleDateString()}</td>
-                  <td className="td-muted">{r.start_time && r.end_time ? `${r.start_time} - ${r.end_time}` : r.start_time || "—"}</td>
-                  <td className="td-muted">{r.location || "—"}</td>
-                  <td className="td-muted" style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.reason || "—"}</td>
+                  <td className="td-muted">{r.start_time && r.end_time ? `${r.start_time} - ${r.end_time}` : r.start_time || "\u2014"}</td>
+                  <td className="td-muted">{r.location || "\u2014"}</td>
+                  <td className="td-muted" style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.reason || "\u2014"}</td>
                   <td><span className={`badge badge-${r.manager_status === "approved" ? "green" : r.manager_status === "rejected" ? "red" : "orange"}`}>{r.manager_status?.replace(/_/g, " ") || "pending"}</span></td>
                   <td><span className={`badge badge-${r.hr_status === "approved" ? "green" : r.hr_status === "rejected" ? "red" : "orange"}`}>{r.hr_status?.replace(/_/g, " ") || "pending"}</span></td>
                   <td>{statusBadge(r.status)}</td>

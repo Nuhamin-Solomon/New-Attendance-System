@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
 
@@ -10,6 +10,7 @@ export default function Leave() {
   const [form, setForm] = useState({ leave_type_id: "", start_date: "", end_date: "", reason: "", supporting_doc_url: "" });
   const [editId, setEditId] = useState(null);
   const [filter, setFilter] = useState("all");
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
   const load = () => {
@@ -53,9 +54,23 @@ export default function Leave() {
     try { await API.put(`/leave/${id}/cancel`); load(); } catch (err) { alert(err.response?.data?.error || "Failed"); }
   };
 
-  const filtered = filter === "all" ? leaves : leaves.filter((l) => l.status === filter);
+  const handleRecall = async (id) => {
+    if (!confirm("Recall this approved leave? This will revert the attendance records and restore your leave balance.")) return;
+    try { await API.put(`/leave/${id}/recall`); load(); } catch (err) { alert(err.response?.data?.error || "Failed"); }
+  };
+
+  const statusFiltered = filter === "all" ? leaves : leaves.filter((l) => l.status === filter);
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase();
+    if (!q) return statusFiltered;
+    return statusFiltered.filter((l) =>
+      [l.leave_type_name, l.reason, l.status].some((v) => String(v || "").toLowerCase().includes(q))
+    );
+  }, [statusFiltered, query]);
+
   const statusBadge = (s) => {
-    const map = { approved: "green", rejected: "red", pending: "orange" };
+    const map = { approved: "green", rejected: "red", pending: "orange", manager_approved: "blue", cancelled: "gray", recalled: "gray" };
     return <span className={`badge badge-${map[s] || "blue"}`}>{(s || "pending").replace(/_/g, " ")}</span>;
   };
 
@@ -101,11 +116,18 @@ export default function Leave() {
       )}
 
       <div className="panel-actions-row no-print">
-        {["all", "pending", "approved", "rejected"].map((f) => (
-          <button key={f} className={`btn btn-sm ${filter === f ? "btn-primary" : "btn-ghost"}`} onClick={() => setFilter(f)}>
-            {f === "all" ? `All (${leaves.length})` : `${f} (${leaves.filter((l) => l.status === f).length})`}
-          </button>
-        ))}
+        <div style={{ display: "flex", gap: "6px" }}>
+          {["all", "pending", "manager_approved", "approved", "rejected"].map((f) => {
+            const count = f === "all" ? leaves.length : leaves.filter((l) => l.status === f).length;
+            if (f !== "all" && count === 0) return null;
+            return (
+              <button key={f} className={`btn btn-sm ${filter === f ? "btn-primary" : "btn-ghost"}`} onClick={() => setFilter(f)}>
+                {f === "all" ? `All (${count})` : `${f.replace(/_/g, " ")} (${count})`}
+              </button>
+            );
+          })}
+        </div>
+        <label className="search-bar"><Icon name="search" size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search leaves..." /></label>
       </div>
 
       <div className="panel report-panel">
@@ -120,7 +142,7 @@ export default function Leave() {
                   <td className="td-muted">{new Date(l.start_date).toLocaleDateString()}</td>
                   <td className="td-muted">{new Date(l.end_date).toLocaleDateString()}</td>
                   <td className="td-center">{dayCount(l.start_date, l.end_date)}</td>
-                  <td className="td-muted" style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.reason || "—"}</td>
+                  <td className="td-muted" style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.reason || "\u2014"}</td>
                   <td>{statusBadge(l.status)}</td>
                   <td className="td-muted">{new Date(l.created_at).toLocaleDateString()}</td>
                   <td className="td-center">
@@ -129,6 +151,12 @@ export default function Leave() {
                         <button className="btn btn-ghost btn-sm" onClick={() => handleEdit(l)} title="Edit"><Icon name="edit" size={14} /></button>
                         <button className="btn btn-ghost btn-sm" onClick={() => handleCancel(l.id)} title="Cancel" style={{ color: "var(--danger)" }}><Icon name="trash" size={14} /></button>
                       </div>
+                    )}
+                    {l.status === "manager_approved" && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleCancel(l.id)} title="Cancel" style={{ color: "var(--danger)" }}><Icon name="trash" size={14} /></button>
+                    )}
+                    {l.status === "approved" && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleRecall(l.id)} title="Recall" style={{ color: "var(--warning, #f59e0b)" }}><Icon name="refresh" size={14} /></button>
                     )}
                   </td>
                 </tr>

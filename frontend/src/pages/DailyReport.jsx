@@ -52,7 +52,7 @@ export default function DailyReport() {
 
         rows.push([
           i + 1,
-          emp.employee_id,
+          emp.card_id || emp.employee_id,
           emp.full_name,
           emp.department || "",
           emp.check_in || "",
@@ -133,7 +133,7 @@ export default function DailyReport() {
                   return (
                     <tr key={emp.employee_id}>
                       <td className="td-muted">{i + 1}</td>
-                      <td className="td-center">{emp.employee_id}</td>
+                      <td className="td-center">{emp.card_id || emp.employee_id}</td>
                       <td className="strong-cell">{emp.full_name}</td>
                       <td><span className="badge badge-blue">{emp.department || "\u2014"}</span></td>
                       <td className="td-center">{emp.check_in || "\u2014"}</td>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
 
@@ -13,6 +13,7 @@ export default function AttendanceSummary() {
   const [dept, setDept] = useState("");
   const [dateFrom, setDateFrom] = useState(new Date().toISOString().split("T")[0]);
   const [dateTo, setDateTo] = useState(new Date().toISOString().split("T")[0]);
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { API.get("/employees/departments").then((r) => setDepartments(r.data)).catch(() => {}); }, []);
@@ -23,6 +24,12 @@ export default function AttendanceSummary() {
     if (dept) params.department = dept;
     API.get("/summary", { params }).then((r) => setRows(r.data)).catch(() => {}).finally(() => setLoading(false));
   }, [dept, dateFrom, dateTo]);
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => [r.full_name, r.department, r.status].some((v) => String(v || "").toLowerCase().includes(q)));
+  }, [rows, query]);
 
   return (
     <div className="page-container">
@@ -39,6 +46,7 @@ export default function AttendanceSummary() {
             </select>
             <input type="date" className="form-input form-input-sm" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
             <input type="date" className="form-input form-input-sm" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            <label className="search-bar"><Icon name="search" size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" /></label>
           </div>
         </div>
         <div className="table-wrap">
@@ -46,7 +54,7 @@ export default function AttendanceSummary() {
             <thead><tr><th>Employee</th><th>Department</th><th>Date</th><th>First In</th><th>Last Out</th><th>Hours</th><th>Status</th></tr></thead>
             <tbody>
               {loading ? <tr><td colSpan="7" className="table-message">Loading...</td></tr>
-              : rows.length ? rows.map((r, i) => (
+              : filtered.length ? filtered.map((r, i) => (
                 <tr key={i}>
                   <td className="strong-cell">{r.full_name}</td>
                   <td><span className="badge badge-blue">{r.department || "—"}</span></td>
@@ -60,7 +68,7 @@ export default function AttendanceSummary() {
             </tbody>
           </table>
         </div>
-        {!loading && <div className="table-footer">Showing {rows.length} records</div>}
+        {!loading && <div className="table-footer">Showing {filtered.length} of {rows.length} records</div>}
       </div>
     </div>
   );

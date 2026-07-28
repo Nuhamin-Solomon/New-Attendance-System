@@ -15,6 +15,7 @@ const notificationRoutes = require("./src/routes/notification.routes");
 const settingsRoutes = require("./src/routes/settings.routes");
 const auditRoutes = require("./src/routes/audit.routes");
 const summaryRoutes = require("./src/routes/summary.routes");
+const departmentRoutes = require("./src/routes/department.routes");
 
 const { fullSync, computeAttendanceSummary } = require("./src/services/syncService");
 
@@ -36,6 +37,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/summary", summaryRoutes);
+app.use("/api/departments", departmentRoutes);
 
 app.get("/", (req, res) => {
   res.json({ success: true, message: "Kifiya Attendance Backend Running" });

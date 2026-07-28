@@ -66,8 +66,8 @@ export default function WeeklyReport() {
         headerRow,
       ];
 
-      for (const emp of (data?.employees || [])) {
-        const row = [emp.employee_id, emp.employee_id, emp.full_name, emp.department || ""];
+      (data?.employees || []).forEach((emp, i) => {
+        const row = [i + 1, emp.card_id || emp.employee_id, emp.full_name, emp.department || ""];
         days.forEach((d) => {
           const day = emp.days[d.key];
           let inTime = day?.check_in || "";
@@ -79,7 +79,7 @@ export default function WeeklyReport() {
         });
         row.push(emp.weekly_hours?.toFixed(1) || "0");
         rows.push(row);
-      }
+      });
 
       const colSpec = [{ wch: 5 }, { wch: 12 }, { wch: 24 }, { wch: 20 }];
       days.forEach(() => { colSpec.push({ wch: 12 }, { wch: 12 }, { wch: 8 }); });
@@ -126,8 +126,9 @@ export default function WeeklyReport() {
             <thead>
               <tr>
                 <th className="sticky-col">#</th>
-                <th className="sticky-col-2">Employee</th>
-                <th className="sticky-col-3">Dept</th>
+                <th className="sticky-col-2">Employee ID</th>
+                <th className="sticky-col-3">Employee</th>
+                <th className="sticky-col-4">Dept</th>
                 {days.map((d) => (
                   <th key={d.key} colSpan={3} className="th-center th-day-header">
                     <div className="day-header-name">{d.dayName}</div>
@@ -137,7 +138,7 @@ export default function WeeklyReport() {
                 <th className="th-total">Weekly Hrs</th>
               </tr>
               <tr className="tr-subheader">
-                <th /><th /><th />
+                <th /><th /><th /><th />
                 {days.map((d) => (
                   <Fragment key={d.key + "-sub"}>
                     <th className="th-center th-sub">In</th>
@@ -150,13 +151,14 @@ export default function WeeklyReport() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={3 + days.length * 3 + 1} className="table-message">Loading...</td></tr>
+                <tr><td colSpan={4 + days.length * 3 + 1} className="table-message">Loading...</td></tr>
               ) : data?.employees?.length ? (
-                data.employees.map((emp) => (
+                data.employees.map((emp, i) => (
                   <tr key={emp.employee_id}>
-                    <td className="sticky-col td-muted">{emp.employee_id}</td>
-                    <td className="sticky-col-2 strong-cell">{emp.full_name}</td>
-                    <td className="sticky-col-3"><span className="badge badge-blue">{emp.department || "\u2014"}</span></td>
+                    <td className="sticky-col td-muted">{i + 1}</td>
+                    <td className="sticky-col-2 td-center">{emp.card_id || emp.employee_id}</td>
+                    <td className="sticky-col-3 strong-cell">{emp.full_name}</td>
+                    <td className="sticky-col-4"><span className="badge badge-blue">{emp.department || "\u2014"}</span></td>
                     {days.map((d) => {
                       const day = emp.days[d.key];
                       if (!day) return <Fragment key={`${d.key}-empty`}><td className="td-center"></td><td className="td-center"></td><td className="td-center"></td></Fragment>;
@@ -173,7 +175,7 @@ export default function WeeklyReport() {
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan={3 + days.length * 3 + 1} className="table-message">No data for this period.</td></tr>
+                <tr><td colSpan={4 + days.length * 3 + 1} className="table-message">No data for this period.</td></tr>
               )}
             </tbody>
           </table>

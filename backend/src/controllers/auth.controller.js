@@ -66,8 +66,21 @@ exports.me = async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "User not found" });
     }
-    res.json(result.rows[0]);
+
+    const deptResult = await pool.query(
+      `SELECT da.assignment_type, d.name AS department_name, d.id AS department_id
+       FROM department_assignments da
+       JOIN departments d ON d.id = da.department_id
+       WHERE da.user_id = $1`,
+      [req.user.id]
+    );
+
+    res.json({
+      ...result.rows[0],
+      assigned_departments: deptResult.rows,
+    });
   } catch (e) {
+    console.error("Me error:", e.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };

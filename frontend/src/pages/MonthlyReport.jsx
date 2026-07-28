@@ -46,8 +46,8 @@ export default function MonthlyReport() {
         [`Generated: ${new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })} | By: System`],
         [], headerRow,
       ];
-      for (const emp of (data?.employees || [])) {
-        const row = [emp.employee_id, emp.employee_id, emp.full_name, emp.department || ""];
+      (data?.employees || []).forEach((emp, i) => {
+        const row = [i + 1, emp.card_id || emp.employee_id, emp.full_name, emp.department || ""];
         days.forEach((d) => {
           const day = emp.days[d.key];
           let inTime = day?.check_in || "";
@@ -58,7 +58,7 @@ export default function MonthlyReport() {
         });
         row.push(emp.total_hours?.toFixed(1) || "0");
         rows.push(row);
-      }
+      });
       if (weekGroups.length > 0) {
         rows.push([]);
         weekGroups.forEach((wg) => {
@@ -118,25 +118,26 @@ export default function MonthlyReport() {
           <table className="report-table">
             <thead>
               <tr>
-                <th className="sticky-col">#</th><th className="sticky-col-2">Employee</th><th className="sticky-col-3">Dept</th>
+                <th className="sticky-col">#</th><th className="sticky-col-2">Employee ID</th><th className="sticky-col-3">Employee</th><th className="sticky-col-4">Dept</th>
                 {days.map((d) => <th key={d.key} className="th-center"><div>{d.dayNum}</div><div className="th-sub">{d.dayName}</div></th>)}
                 <th className="th-total">Total</th>
               </tr>
               <tr className="tr-subheader">
-                <th /><th /><th />
+                <th /><th /><th /><th />
                 {days.map((d) => <th key={d.key + "-sub"} className="th-center th-sub">In/Out</th>)}
                 <th />
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={4 + days.length} className="table-message">Loading...</td></tr>
+                <tr><td colSpan={5 + days.length} className="table-message">Loading...</td></tr>
               ) : data?.employees?.length ? (
-                data.employees.map((emp) => (
+                data.employees.map((emp, i) => (
                   <tr key={emp.employee_id}>
-                    <td className="sticky-col td-muted">{emp.employee_id}</td>
-                    <td className="sticky-col-2 strong-cell">{emp.full_name}</td>
-                    <td className="sticky-col-3"><span className="badge badge-blue">{emp.department || "\u2014"}</span></td>
+                    <td className="sticky-col td-muted">{i + 1}</td>
+                    <td className="sticky-col-2 td-center">{emp.card_id || emp.employee_id}</td>
+                    <td className="sticky-col-3 strong-cell">{emp.full_name}</td>
+                    <td className="sticky-col-4"><span className="badge badge-blue">{emp.department || "\u2014"}</span></td>
                     {days.map((d) => {
                       const day = emp.days[d.key];
                       if (day?.approved) return <td key={d.key} className="td-center td-approved">{day.approved_type || "Appr"}</td>;
@@ -148,7 +149,7 @@ export default function MonthlyReport() {
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan={4 + days.length} className="table-message">No data for this period.</td></tr>
+                <tr><td colSpan={5 + days.length} className="table-message">No data for this period.</td></tr>
               )}
             </tbody>
           </table>
