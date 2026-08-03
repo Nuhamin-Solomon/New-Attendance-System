@@ -23,7 +23,7 @@ const { fullSync, computeAttendanceSummary } = require("./src/services/syncServi
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
@@ -45,24 +45,36 @@ app.get("/", (req, res) => {
   res.json({ success: true, message: "Kifiya Attendance Backend Running" });
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, async () => {
-  console.log(`Server running on port ${PORT}`);
-
-  console.log("Computing attendance summary from existing data...");
-  try {
-    await computeAttendanceSummary();
-    console.log("Initial summary computation done.");
-  } catch (e) {
-    console.error("Initial computation error:", e.message);
-  }
-
-  console.log("Starting auto-sync every 60 seconds from BioTime...");
-  setInterval(async () => {
-    try {
-      await fullSync();
-    } catch (e) {
-      console.error("Auto-sync error:", e.message);
-    }
-  }, 60 * 1000);
+app.get("/api/health", (req, res) => {
+  res.json({ ok: true, uptime: process.uptime() });
 });
+
+// The Express app is exported so it can be mounted as a serverless function
+// (Vercel api/index.js). Only when run directly (`node server.js`) do we bind a
+// port and start background jobs (summary refresh + BioTime auto-sync) — those
+// long-running timers must not run inside a serverless function.
+module.exports = app;
+
+if (require.main === module) {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, async () => {
+    console.log(`Server running on port ${PORT}`);
+
+    console.log("Computing attendance summary from existing data...");
+    try {
+      await computeAttendanceSummary();
+      console.log("Initial summary computation done.");
+    } catch (e) {
+      console.error("Initial computation error:", e.message);
+    }
+
+    console.log("Starting auto-sync every 60 seconds from BioTime...");
+    setInterval(async () => {
+      try {
+        await fullSync();
+      } catch (e) {
+        console.error("Auto-sync error:", e.message);
+      }
+    }, 60 * 1000);
+  });
+}

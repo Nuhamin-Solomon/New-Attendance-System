@@ -13,17 +13,31 @@ const { Pool, types } = require("pg");
 types.setTypeParser(1114, (str) => str);
 types.setTypeParser(1082, (str) => str);
 
-const pool = new Pool({
+// Support managed Postgres: a single DATABASE_URL connection string takes
+// precedence. Individual DB_* vars remain as the fallback (local dev).
+const isManagedHost = (host = "") =>
+  /\.(railway\.app|render\.com|neon\.tech|rds\.amazonaws\.com|supabase\.co)$/i.test(host);
 
+let poolConfig;
+if (process.env.DATABASE_URL) {
+  poolConfig = {
+    connectionString: process.env.DATABASE_URL,
+    ssl: isManagedHost(new URL(process.env.DATABASE_URL).hostname) && process.env.DB_SSL !== "false",
+  };
+} else {
+  poolConfig = {
     host: process.env.DB_HOST,
     port: process.env.DB_PORT,
     database: process.env.DB_NAME,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
+  };
+}
 
-    options: "-c TimeZone=Africa/Nairobi",
+poolConfig.options = "-c TimeZone=Africa/Nairobi";
+poolConfig.connectionTimeoutMillis = 10000;
 
-});
+const pool = new Pool(poolConfig);
 
 
 pool.connect()
