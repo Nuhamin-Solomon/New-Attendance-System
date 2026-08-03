@@ -6,7 +6,7 @@ import Icon from "./Icon";
 const navConfig = [
   { id: "dashboard", path: "/dashboard", label: "Dashboard", icon: "dashboard", roles: ["admin", "hr", "manager", "employee"] },
   { id: "employees", path: "/employees", label: "Employees", icon: "users", roles: ["admin", "hr"] },
-  { id: "my-attendance", path: "/my-attendance", label: "My Attendance", icon: "clock", roles: ["employee", "manager"] },
+  { id: "my-attendance", path: "/my-attendance", label: "My Attendance", icon: "clock", roles: ["employee", "hr", "manager"] },
   { id: "attendance-summary", path: "/attendance-summary", label: "Attendance Summary", icon: "attendance", roles: ["admin", "hr", "manager"] },
   { id: "attendance-transactions", path: "/attendance-transactions", label: "Transactions", icon: "database", roles: ["admin", "hr"] },
   { id: "my-team", path: "/my-team", label: "My Team", icon: "team", roles: ["manager", "hr"] },
@@ -24,6 +24,7 @@ const navConfig = [
   { id: "admin-roles", path: "/admin/roles", label: "Roles", icon: "shield", roles: ["admin"] },
   { id: "admin-settings", path: "/admin/settings", label: "Settings", icon: "settings", roles: ["admin"] },
   { id: "admin-audit", path: "/admin/audit", label: "Audit Log", icon: "eye", roles: ["admin"] },
+  { id: "data-import-export", path: "/admin/data", label: "Data Import/Export", icon: "sync", roles: ["admin", "hr"] },
 ];
 
 const sectionMap = {
@@ -47,6 +48,7 @@ const sectionMap = {
   "admin-roles": "Administration",
   "admin-settings": "Administration",
   "admin-audit": "Administration",
+  "data-import-export": "Administration",
 };
 
 export default function Sidebar() {

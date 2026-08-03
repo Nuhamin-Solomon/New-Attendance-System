@@ -1,7 +1,10 @@
-import { useEffect, useState, Fragment } from "react";
+import { useEffect, useState, Fragment, useMemo } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
 import ReportHeader from "../components/ReportHeader";
+import SearchBar from "../components/SearchBar";
+import { formatBioTimeTimeValue } from "../utils/time";
+import { matchesSearch } from "../utils/search";
 
 function getWeekStart(dateStr) {
   const d = new Date(dateStr + "T12:00:00Z");
@@ -26,6 +29,7 @@ export default function WeeklyReport() {
   const [startDate, setStartDate] = useState(() => getWeekStart(new Date().toISOString().split("T")[0]));
   const [endDate, setEndDate] = useState(() => getWeekEnd(new Date().toISOString().split("T")[0]));
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     API.get("/reports/department").then((r) => setDepartments(r.data.departments || [])).catch(() => {});
@@ -47,6 +51,8 @@ export default function WeeklyReport() {
   };
 
   const days = data?.days || [];
+  const employees = data?.employees || [];
+  const filteredEmployees = useMemo(() => employees.filter((e) => matchesSearch(e, query, ["full_name", "card_id", "department"])), [employees, query]);
 
   const handleExport = async () => {
     if (!data) return;
@@ -66,7 +72,7 @@ export default function WeeklyReport() {
         headerRow,
       ];
 
-      (data?.employees || []).forEach((emp, i) => {
+      (filteredEmployees || []).forEach((emp, i) => {
         const row = [i + 1, emp.card_id || emp.employee_id, emp.full_name, emp.department || ""];
         days.forEach((d) => {
           const day = emp.days[d.key];
@@ -118,6 +124,7 @@ export default function WeeklyReport() {
           <option value="">All Departments</option>
           {departments.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
+        <SearchBar value={query} onChange={setQuery} />
       </div>
 
       <div className="panel report-panel">
@@ -152,8 +159,8 @@ export default function WeeklyReport() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={4 + days.length * 3 + 1} className="table-message">Loading...</td></tr>
-              ) : data?.employees?.length ? (
-                data.employees.map((emp, i) => (
+              ) : filteredEmployees.length ? (
+                filteredEmployees.map((emp, i) => (
                   <tr key={emp.employee_id}>
                     <td className="sticky-col td-muted">{i + 1}</td>
                     <td className="sticky-col-2 td-center">{emp.card_id || emp.employee_id}</td>
@@ -165,8 +172,8 @@ export default function WeeklyReport() {
                       if (day.approved) return <Fragment key={`${d.key}-app`}><td className="td-center td-approved" colSpan={3}>{day.approved_type || "Approved"}</td></Fragment>;
                       return (
                         <Fragment key={d.key}>
-                          <td className="td-center">{day.check_in || "\u2014"}</td>
-                          <td className={`td-center${day.missing_checkout ? " td-warning" : ""}`}>{day.missing_checkout ? "MCO" : (day.check_out || "\u2014")}</td>
+                          <td className="td-center">{formatBioTimeTimeValue(day.check_in) || "\u2014"}</td>
+                          <td className={`td-center${day.missing_checkout ? " td-warning" : ""}`}>{day.missing_checkout ? "MCO" : (formatBioTimeTimeValue(day.check_out) || "\u2014")}</td>
                           <td className="td-center td-muted">{day.total_hours ? `${parseFloat(day.total_hours).toFixed(1)}` : "\u2014"}</td>
                         </Fragment>
                       );
@@ -180,8 +187,8 @@ export default function WeeklyReport() {
             </tbody>
           </table>
         </div>
-        {data?.employees?.length > 0 && (
-          <div className="table-footer">Showing {data.employees.length} employees | {days.length} days</div>
+        {filteredEmployees.length > 0 && (
+          <div className="table-footer">Showing {filteredEmployees.length} of {employees.length} employees | {days.length} days</div>
         )}
       </div>
     </div>

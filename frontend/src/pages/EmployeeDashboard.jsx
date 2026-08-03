@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import API from "../services/api";
 import Icon from "../components/Icon";
+import { formatBioTimeDateValue, formatBioTimeTimeValue } from "../utils/time";
 
 export default function EmployeeDashboard() {
   const { user } = useAuth();
@@ -76,8 +77,8 @@ export default function EmployeeDashboard() {
           <div className="panel-body">
             {todayData ? (
               <div style={{ display: "grid", gap: "12px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span className="text-muted">Check In</span><strong>{todayData.first_in ? new Date(todayData.first_in).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</strong></div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span className="text-muted">Check Out</span><strong>{todayData.last_out ? new Date(todayData.last_out).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span className="text-muted">Check In</span><strong>{todayData.first_in ? formatBioTimeTimeValue(todayData.first_in) : "—"}</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span className="text-muted">Check Out</span><strong>{todayData.last_out ? formatBioTimeTimeValue(todayData.last_out) : "—"}</strong></div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span className="text-muted">Working Hours</span><strong>{todayData.total_hours ? `${parseFloat(todayData.total_hours).toFixed(1)}h` : "—"}</strong></div>
                 {todayData.status === "present_incomplete" && <div style={{ display: "flex", justifyContent: "space-between" }}><span className="text-muted">Reminder</span><span className="badge badge-orange">Don't forget to check out!</span></div>}
               </div>
@@ -106,9 +107,9 @@ export default function EmployeeDashboard() {
             <tbody>
               {recentRecords.length ? recentRecords.map((r) => (
                 <tr key={r.id}>
-                  <td className="strong-cell">{new Date(r.date).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" })}</td>
-                  <td className="td-muted">{r.first_in ? new Date(r.first_in).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                  <td className="td-muted">{r.last_out ? new Date(r.last_out).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                  <td className="strong-cell">{formatBioTimeDateValue(r.date)}</td>
+                  <td className="td-muted">{r.first_in ? formatBioTimeTimeValue(r.first_in) : "—"}</td>
+                  <td className="td-muted">{r.last_out ? formatBioTimeTimeValue(r.last_out) : "—"}</td>
                   <td className="td-muted">{r.total_hours ? `${parseFloat(r.total_hours).toFixed(1)}h` : "—"}</td>
                   <td>{statusBadge(r.status)}</td>
                 </tr>

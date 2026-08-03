@@ -1,7 +1,10 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, Fragment } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
 import ReportHeader from "../components/ReportHeader";
+import SearchBar from "../components/SearchBar";
+import { formatBioTimeTimeValue } from "../utils/time";
+import { matchesSearch } from "../utils/search";
 
 function getMonthStart() {
   const d = new Date(); d.setUTCDate(1);
@@ -19,6 +22,7 @@ export default function MonthlyReport() {
   const [startDate, setStartDate] = useState(getMonthStart);
   const [endDate, setEndDate] = useState(getMonthEnd);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   useEffect(() => { API.get("/reports/department").then((r) => setDepartments(r.data.departments || [])).catch(() => {}); }, []);
 
@@ -31,13 +35,15 @@ export default function MonthlyReport() {
 
   const days = data?.days || [];
   const weekGroups = data?.weekGroups || [];
+  const employees = data?.employees || [];
+  const filteredEmployees = useMemo(() => employees.filter((e) => matchesSearch(e, query, ["full_name", "card_id", "department"])), [employees, query]);
 
   const handleExport = async () => {
     if (!data) return;
     try {
       const XLSX = await import("xlsx");
       const headerRow = ["#", "Employee ID", "Full Name", "Department"];
-      days.forEach((d) => { headerRow.push(`${d.dayNum} ${d.dayName}`, ""); });
+      days.forEach((d) => { headerRow.push(`${d.dayName} ${d.monthDay} In`, `${d.dayName} ${d.monthDay} Out`, `${d.dayName} Hrs`); });
       headerRow.push("Total Monthly Hours");
       const rows = [
         ["Kifiya Financial Technology plc"],
@@ -46,15 +52,16 @@ export default function MonthlyReport() {
         [`Generated: ${new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })} | By: System`],
         [], headerRow,
       ];
-      (data?.employees || []).forEach((emp, i) => {
+      filteredEmployees.forEach((emp, i) => {
         const row = [i + 1, emp.card_id || emp.employee_id, emp.full_name, emp.department || ""];
         days.forEach((d) => {
           const day = emp.days[d.key];
           let inTime = day?.check_in || "";
           let outTime = day?.check_out || "";
+          let hrs = day?.total_hours ? parseFloat(day.total_hours).toFixed(1) : "";
           if (day?.missing_checkout) outTime = "Missing CO";
-          if (day?.approved) { inTime = day.approved_type || "Approved"; outTime = ""; }
-          row.push(inTime, outTime);
+          if (day?.approved) { inTime = day.approved_type || "Approved"; outTime = ""; hrs = ""; }
+          row.push(inTime, outTime, hrs);
         });
         row.push(emp.total_hours?.toFixed(1) || "0");
         rows.push(row);
@@ -62,7 +69,7 @@ export default function MonthlyReport() {
       if (weekGroups.length > 0) {
         rows.push([]);
         weekGroups.forEach((wg) => {
-          const empWeekHours = (data?.employees || []).map((emp) => {
+          const empWeekHours = filteredEmployees.map((emp) => {
             let h = 0;
             days.forEach((d) => { if (d.weekNumber === wg.week - 1) { const dd = emp.days[d.key]; if (dd?.check_in && !dd?.missing_checkout && !dd?.approved) h += parseFloat(dd.total_hours) || 0; } });
             return h;
@@ -71,7 +78,7 @@ export default function MonthlyReport() {
         });
       }
       const colSpec = [{ wch: 5 }, { wch: 12 }, { wch: 24 }, { wch: 20 }];
-      days.forEach(() => { colSpec.push({ wch: 10 }, { wch: 10 }); });
+      days.forEach(() => { colSpec.push({ wch: 12 }, { wch: 12 }, { wch: 8 }); });
       colSpec.push({ wch: 18 });
       const ws = XLSX.utils.aoa_to_sheet(rows);
       ws["!cols"] = colSpec;
@@ -82,20 +89,6 @@ export default function MonthlyReport() {
       XLSX.writeFile(wb, `monthly-report-${startDate}-to-${endDate}.xlsx`);
     } catch (e) { alert("Export failed: " + e.message); }
   };
-
-  const weekSubtotals = useMemo(() => {
-    if (!data) return {};
-    const result = {};
-    for (const emp of data.employees) {
-      result[emp.employee_id] = {};
-      for (const wg of weekGroups) {
-        let h = 0;
-        days.forEach((d) => { if (d.weekNumber === wg.week - 1) { const dd = emp.days[d.key]; if (dd?.check_in && !dd?.missing_checkout && !dd?.approved) h += parseFloat(dd.total_hours) || 0; } });
-        result[emp.employee_id][wg.week] = h;
-      }
-    }
-    return result;
-  }, [data, days, weekGroups]);
 
   return (
     <div className="page-container">
@@ -112,27 +105,42 @@ export default function MonthlyReport() {
           <option value="">All Departments</option>
           {departments.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
+        <SearchBar value={query} onChange={setQuery} />
       </div>
       <div className="panel report-panel">
         <div className="table-wrap report-table-wrap">
           <table className="report-table">
             <thead>
               <tr>
-                <th className="sticky-col">#</th><th className="sticky-col-2">Employee ID</th><th className="sticky-col-3">Employee</th><th className="sticky-col-4">Dept</th>
-                {days.map((d) => <th key={d.key} className="th-center"><div>{d.dayNum}</div><div className="th-sub">{d.dayName}</div></th>)}
-                <th className="th-total">Total</th>
+                <th className="sticky-col">#</th>
+                <th className="sticky-col-2">Employee ID</th>
+                <th className="sticky-col-3">Employee</th>
+                <th className="sticky-col-4">Dept</th>
+                {days.map((d) => (
+                  <th key={d.key} colSpan={3} className="th-center th-day-header">
+                    <div className="day-header-name">{d.dayName}</div>
+                    <div className="day-header-date">{d.monthDay}</div>
+                  </th>
+                ))}
+                <th className="th-total">Monthly Hrs</th>
               </tr>
               <tr className="tr-subheader">
                 <th /><th /><th /><th />
-                {days.map((d) => <th key={d.key + "-sub"} className="th-center th-sub">In/Out</th>)}
+                {days.map((d) => (
+                  <Fragment key={d.key + "-sub"}>
+                    <th className="th-center th-sub">In</th>
+                    <th className="th-center th-sub">Out</th>
+                    <th className="th-center th-sub">Hrs</th>
+                  </Fragment>
+                ))}
                 <th />
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5 + days.length} className="table-message">Loading...</td></tr>
-              ) : data?.employees?.length ? (
-                data.employees.map((emp, i) => (
+                <tr><td colSpan={4 + days.length * 3 + 1} className="table-message">Loading...</td></tr>
+              ) : filteredEmployees.length ? (
+                filteredEmployees.map((emp, i) => (
                   <tr key={emp.employee_id}>
                     <td className="sticky-col td-muted">{i + 1}</td>
                     <td className="sticky-col-2 td-center">{emp.card_id || emp.employee_id}</td>
@@ -140,22 +148,27 @@ export default function MonthlyReport() {
                     <td className="sticky-col-4"><span className="badge badge-blue">{emp.department || "\u2014"}</span></td>
                     {days.map((d) => {
                       const day = emp.days[d.key];
-                      if (day?.approved) return <td key={d.key} className="td-center td-approved">{day.approved_type || "Appr"}</td>;
-                      if (!day?.check_in && !day?.status) return <td key={d.key} className="td-center"></td>;
-                      if (day?.missing_checkout) return <td key={d.key} className="td-center td-warning">{day.check_in || ""} / MCO</td>;
-                      return <td key={d.key} className="td-center">{day?.check_in || ""} / {day?.check_out || ""}</td>;
+                      if (!day) return <Fragment key={`${d.key}-empty`}><td className="td-center"></td><td className="td-center"></td><td className="td-center"></td></Fragment>;
+                      if (day.approved) return <Fragment key={`${d.key}-app`}><td className="td-center td-approved" colSpan={3}>{day.approved_type || "Approved"}</td></Fragment>;
+                      return (
+                        <Fragment key={d.key}>
+                          <td className="td-center">{formatBioTimeTimeValue(day.check_in) || "\u2014"}</td>
+                          <td className={`td-center${day.missing_checkout ? " td-warning" : ""}`}>{day.missing_checkout ? "MCO" : (formatBioTimeTimeValue(day.check_out) || "\u2014")}</td>
+                          <td className="td-center td-muted">{day.total_hours ? `${parseFloat(day.total_hours).toFixed(1)}` : "\u2014"}</td>
+                        </Fragment>
+                      );
                     })}
                     <td className="td-center td-total"><strong>{emp.total_hours?.toFixed(1) || "0"}h</strong></td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan={5 + days.length} className="table-message">No data for this period.</td></tr>
+                <tr><td colSpan={4 + days.length * 3 + 1} className="table-message">No data for this period.</td></tr>
               )}
             </tbody>
           </table>
         </div>
-        {data?.employees?.length > 0 && (
-          <div className="table-footer">Showing {data.employees.length} employees | {days.length} days | {weekGroups.length} week{weekGroups.length !== 1 ? "s" : ""}</div>
+        {filteredEmployees.length > 0 && (
+          <div className="table-footer">Showing {filteredEmployees.length} of {employees.length} employees | {days.length} days | {weekGroups.length} week{weekGroups.length !== 1 ? "s" : ""}</div>
         )}
       </div>
     </div>

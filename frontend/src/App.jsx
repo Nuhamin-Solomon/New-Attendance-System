@@ -27,6 +27,7 @@ import DepartmentManagementPage from "./pages/admin/DepartmentManagement";
 import RolesPage from "./pages/admin/Roles";
 import SettingsPage from "./pages/admin/Settings";
 import AuditLogPage from "./pages/admin/AuditLog";
+import DataImportExportPage from "./pages/admin/DataImportExport";
 
 function AppRoutes() {
   const { user, loading, mustChangePassword } = useAuth();
@@ -96,6 +97,7 @@ function AppRoutes() {
               <Route path="/admin/roles" element={<ProtectedRoute roles={["admin"]}><RolesPage /></ProtectedRoute>} />
               <Route path="/admin/settings" element={<ProtectedRoute roles={["admin"]}><SettingsPage /></ProtectedRoute>} />
               <Route path="/admin/audit" element={<ProtectedRoute roles={["admin"]}><AuditLogPage /></ProtectedRoute>} />
+              <Route path="/admin/data" element={<ProtectedRoute roles={["admin", "hr"]}><DataImportExportPage /></ProtectedRoute>} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </main>

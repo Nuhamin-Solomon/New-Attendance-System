@@ -26,7 +26,7 @@ async function revertAttendanceSummary(employeeId, date) {
   const logs = await pool.query(
     `SELECT MIN(scan_time) AS first_in, MAX(scan_time) AS last_out, COUNT(*) AS scan_count
      FROM attendance_logs
-     WHERE employee_id = $1 AND DATE(scan_time AT TIME ZONE 'Africa/Addis_Ababa') = $2`,
+     WHERE employee_id = $1 AND DATE(scan_time) = $2`,
     [employeeId, date]
   );
   const l = logs.rows[0];

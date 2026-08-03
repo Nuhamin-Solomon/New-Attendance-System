@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
 import ReportHeader from "../components/ReportHeader";
+import SearchBar from "../components/SearchBar";
+import { formatBioTimeTimeValue } from "../utils/time";
+import { matchesSearch } from "../utils/search";
 
 function getLastWorkingDay() {
   const d = new Date();
@@ -18,6 +21,7 @@ export default function DailyReport() {
   const [date, setDate] = useState(getLastWorkingDay);
   const [department, setDepartment] = useState("");
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     setLoading(true);
@@ -43,7 +47,7 @@ export default function DailyReport() {
         ["#", "Employee ID", "Full Name", "Department", "First Check-In", "Last Check-Out", "Total Working Hours", "Remarks"],
       ];
 
-      const filtered = data?.employees || [];
+      const filtered = filteredEmployees;
       filtered.forEach((emp, i) => {
         let remarks = "";
         if (emp.approved) remarks = emp.approved_type || "Approved";
@@ -55,8 +59,8 @@ export default function DailyReport() {
           emp.card_id || emp.employee_id,
           emp.full_name,
           emp.department || "",
-          emp.check_in || "",
-          emp.check_out || "",
+          formatBioTimeTimeValue(emp.check_in) || "",
+          formatBioTimeTimeValue(emp.check_out) || "",
           emp.total_hours || "",
           remarks,
         ]);
@@ -84,6 +88,8 @@ export default function DailyReport() {
   const handlePrint = () => window.print();
 
   const summary = data?.summary || {};
+  const employees = data?.employees || [];
+  const filteredEmployees = useMemo(() => employees.filter((e) => matchesSearch(e, query, ["full_name", "card_id", "department"])), [employees, query]);
 
   return (
     <div className="page-container">
@@ -103,6 +109,7 @@ export default function DailyReport() {
           <option value="">All Departments</option>
           {(data?.departments_list || []).map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
+        <SearchBar value={query} onChange={setQuery} />
       </div>
 
       <div className="stats-grid stats-grid-5 no-print">
@@ -124,8 +131,8 @@ export default function DailyReport() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={8} className="table-message">Loading...</td></tr>
-              ) : data?.employees?.length ? (
-                data.employees.map((emp, i) => {
+              ) : filteredEmployees.length ? (
+                filteredEmployees.map((emp, i) => {
                   let remarks = "";
                   if (emp.approved) remarks = emp.approved_type || "Approved";
                   else if (emp.missing_checkout) remarks = "Missing Check-Out";
@@ -136,8 +143,8 @@ export default function DailyReport() {
                       <td className="td-center">{emp.card_id || emp.employee_id}</td>
                       <td className="strong-cell">{emp.full_name}</td>
                       <td><span className="badge badge-blue">{emp.department || "\u2014"}</span></td>
-                      <td className="td-center">{emp.check_in || "\u2014"}</td>
-                      <td className="td-center">{emp.check_out || "\u2014"}</td>
+                      <td className="td-center">{formatBioTimeTimeValue(emp.check_in) || "\u2014"}</td>
+                      <td className="td-center">{formatBioTimeTimeValue(emp.check_out) || "\u2014"}</td>
                       <td className="td-center">{emp.total_hours ? `${emp.total_hours}h` : "\u2014"}</td>
                       <td className="td-center">
                         {emp.missing_checkout && <span className="badge badge-orange">Missing Check-Out</span>}
@@ -153,8 +160,8 @@ export default function DailyReport() {
             </tbody>
           </table>
         </div>
-        {data?.employees?.length > 0 && (
-          <div className="table-footer">Showing {data.employees.length} employees</div>
+        {filteredEmployees.length > 0 && (
+          <div className="table-footer">Showing {filteredEmployees.length} of {employees.length} employees</div>
         )}
       </div>
     </div>

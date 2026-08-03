@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
+import { formatBioTimeDateTimeValue } from "../utils/time";
+import { matchesSearch } from "../utils/search";
 
-const formatTime = (iso) => iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }) : "—";
+const formatTime = (iso) => iso ? formatBioTimeDateTimeValue(iso) : "—";
 
 export default function AttendanceTransactions() {
   const [records, setRecords] = useState([]);
@@ -19,7 +21,7 @@ export default function AttendanceTransactions() {
   }, [dateFrom, dateTo]);
 
   const filtered = useMemo(() => records.filter((r) =>
-    [r.full_name, r.department, r.source].some((v) => String(v || "").toLowerCase().includes(query.toLowerCase()))
+    matchesSearch(r, query, ["full_name", "card_id", "department", "source"])
   ), [records, query]);
 
   return (
@@ -34,7 +36,7 @@ export default function AttendanceTransactions() {
           <div className="panel-actions">
             <input type="date" className="form-input form-input-sm" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
             <input type="date" className="form-input form-input-sm" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-            <label className="search-bar"><Icon name="search" size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" /></label>
+            <label className="search-bar"><Icon name="search" size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name, ID, or department" /></label>
           </div>
         </div>
         <div className="table-wrap">

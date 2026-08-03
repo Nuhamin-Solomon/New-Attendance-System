@@ -1,7 +1,10 @@
-import { useEffect, useState, Fragment } from "react";
+import { useEffect, useState, Fragment, useMemo } from "react";
 import API from "../../services/api";
 import Icon from "../../components/Icon";
 import ReportHeader from "../../components/ReportHeader";
+import SearchBar from "../../components/SearchBar";
+import { formatBioTimeTimeValue } from "../../utils/time";
+import { matchesSearch } from "../../utils/search";
 
 export default function DepartmentReport() {
   const [data, setData] = useState(null);
@@ -13,6 +16,7 @@ export default function DepartmentReport() {
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     API.get("/reports/department").then((r) => setDepartments(r.data.departments || [])).catch(() => {});
@@ -52,6 +56,9 @@ export default function DepartmentReport() {
   const totalMissingCO = (data?.employees || []).reduce((s, e) => s + e.records.filter((r) => r.missing_checkout).length, 0);
   const totalApproved = (data?.employees || []).reduce((s, e) => s + e.records.filter((r) => r.approved).length, 0);
 
+  const employees = data?.employees || [];
+  const filteredEmployees = useMemo(() => employees.filter((e) => matchesSearch(e, query, ["full_name", "card_id", "department"])), [employees, query]);
+
   const handleExport = async () => {
     if (!data) return;
     try {
@@ -71,7 +78,7 @@ export default function DepartmentReport() {
         headerRow,
       ];
 
-      for (const emp of (data?.employees || [])) {
+      for (const emp of filteredEmployees) {
         const row = [emp.card_id || emp.employee_id, emp.card_id || emp.employee_id, emp.full_name];
         const recMap = {};
         for (const rec of (emp.records || [])) recMap[rec.date] = rec;
@@ -118,6 +125,7 @@ export default function DepartmentReport() {
         <input type="date" className="form-input form-input-sm" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         <label className="form-label" style={{ margin: 0 }}>To</label>
         <input type="date" className="form-input form-input-sm" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+        <SearchBar value={query} onChange={setQuery} />
       </div>
 
       {selectedDept && (
@@ -162,8 +170,8 @@ export default function DepartmentReport() {
                 <tbody>
                   {loading ? (
                     <tr><td colSpan={3 + days.length * 3 + 1} className="table-message">Loading...</td></tr>
-                  ) : data?.employees?.length ? (
-                    data.employees.map((emp, i) => {
+                  ) : filteredEmployees.length ? (
+                    filteredEmployees.map((emp, i) => {
                       const recMap = {};
                       for (const rec of (emp.records || [])) recMap[rec.date] = rec;
                       return (
@@ -177,8 +185,8 @@ export default function DepartmentReport() {
                             if (rec.approved) return <Fragment key={d.key}><td className="td-center td-approved" colSpan={3}>{rec.approved_type || "Approved"}</td></Fragment>;
                             return (
                               <Fragment key={d.key}>
-                                <td className="td-center">{rec.check_in || "\u2014"}</td>
-                                <td className={`td-center${rec.missing_checkout ? " td-warning" : ""}`}>{rec.missing_checkout ? "MCO" : (rec.check_out || "\u2014")}</td>
+                                <td className="td-center">{formatBioTimeTimeValue(rec.check_in) || "\u2014"}</td>
+                                <td className={`td-center${rec.missing_checkout ? " td-warning" : ""}`}>{rec.missing_checkout ? "MCO" : (formatBioTimeTimeValue(rec.check_out) || "\u2014")}</td>
                                 <td className="td-center td-muted">{rec.total_hours ? parseFloat(rec.total_hours).toFixed(1) : "\u2014"}</td>
                               </Fragment>
                             );
@@ -193,8 +201,8 @@ export default function DepartmentReport() {
                 </tbody>
               </table>
             </div>
-            {data?.employees?.length > 0 && (
-              <div className="table-footer">Showing {data.employees.length} employees | {days.length} days | Attendance Rate: {attRate}%</div>
+            {filteredEmployees.length > 0 && (
+              <div className="table-footer">Showing {filteredEmployees.length} of {employees.length} employees | {days.length} days | Attendance Rate: {attRate}%</div>
             )}
           </div>
         </>

@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
+import SearchBar from "../components/SearchBar";
+import { formatBioTimeDateValue, formatBioTimeTimeValue } from "../utils/time";
+import { matchesSearch } from "../utils/search";
 
 const statusBadge = (s) => {
   const map = { present: "green", late: "orange", absent: "red", leave: "purple", field_duty: "teal", approved: "green", present_incomplete: "orange" };
@@ -16,6 +19,7 @@ export default function MyAttendance() {
     return d.toISOString().split("T")[0];
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [query, setQuery] = useState("");
 
   const load = () => {
     setLoading(true);
@@ -52,6 +56,15 @@ export default function MyAttendance() {
   const missingCODays = records.filter((r) => r.status === "present_incomplete").length;
   const approvedDays = records.filter((r) => r.status === "approved" || r.status === "field_duty").length;
 
+  const filtered = useMemo(() => {
+    if (!query.trim()) return records;
+    const q = query.trim().toLowerCase();
+    return records.filter((r) =>
+      matchesSearch(r, query, ["date", "status", "notes"]) ||
+      formatBioTimeDateValue(r.date).toLowerCase().includes(q)
+    );
+  }, [records, query]);
+
   const handleExport = async () => {
     try {
       const XLSX = await import("xlsx");
@@ -63,15 +76,15 @@ export default function MyAttendance() {
         [],
         ["#", "Date", "First Check-In", "Last Check-Out", "Total Working Hours", "Status", "Notes"],
       ];
-      records.forEach((r, i) => {
+      filtered.forEach((r, i) => {
         let notes = "";
         if (r.status === "present_incomplete") notes = "Missing check-out";
         else if (r.status === "approved") notes = r.notes || "Approved";
         rows.push([
           i + 1,
-          new Date(r.date).toLocaleDateString("en-GB"),
-          r.first_in ? new Date(r.first_in).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "",
-          r.last_out ? new Date(r.last_out).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "",
+          formatBioTimeDateValue(r.date),
+          r.first_in ? formatBioTimeTimeValue(r.first_in) : "",
+          r.last_out ? formatBioTimeTimeValue(r.last_out) : "",
           r.total_hours ? parseFloat(r.total_hours).toFixed(1) : "0",
           r.status || "absent",
           notes,
@@ -121,6 +134,7 @@ export default function MyAttendance() {
           <input type="date" className="form-input form-input-sm" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           <label className="form-label" style={{ margin: 0 }}>To</label>
           <input type="date" className="form-input form-input-sm" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          <SearchBar value={query} onChange={setQuery} placeholder="Search by date, status, or notes" />
         </div>
       </div>
 
@@ -140,16 +154,16 @@ export default function MyAttendance() {
             </thead>
             <tbody>
               {loading ? <tr><td colSpan={7} className="table-message">Loading...</td></tr>
-              : records.length ? records.map((r, i) => {
+              : filtered.length ? filtered.map((r, i) => {
                 let notes = "";
                 if (r.status === "present_incomplete") notes = "Missing check-out";
                 else if (r.status === "approved") notes = r.notes || "Approved";
                 return (
                   <tr key={r.id}>
                     <td className="td-muted">{i + 1}</td>
-                    <td className="strong-cell">{new Date(r.date).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}</td>
-                    <td className="td-center">{r.first_in ? new Date(r.first_in).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                    <td className="td-center">{r.last_out ? new Date(r.last_out).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                    <td className="strong-cell">{formatBioTimeDateValue(r.date)}</td>
+                    <td className="td-center">{r.first_in ? formatBioTimeTimeValue(r.first_in) : "—"}</td>
+                    <td className="td-center">{r.last_out ? formatBioTimeTimeValue(r.last_out) : "—"}</td>
                     <td className="td-center"><strong>{r.total_hours ? `${parseFloat(r.total_hours).toFixed(1)}h` : "—"}</strong></td>
                     <td className="td-center">{statusBadge(r.status)}</td>
                     <td className="td-center">{notes && <span className="badge badge-orange">{notes}</span>}</td>
@@ -159,7 +173,7 @@ export default function MyAttendance() {
             </tbody>
           </table>
         </div>
-        {records.length > 0 && <div className="table-footer">Showing {records.length} days | Total: {totalHours.toFixed(1)} hours</div>}
+        {filtered.length > 0 && <div className="table-footer">Showing {filtered.length} of {records.length} days | Total: {totalHours.toFixed(1)} hours</div>}
       </div>
     </div>
   );

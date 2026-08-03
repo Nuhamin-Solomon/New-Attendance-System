@@ -1,7 +1,8 @@
 import { useEffect, useState, useMemo } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
-
+import { formatBioTimeDateValue, formatBioTimeTimeValue } from "../utils/time";
+import { matchesSearch } from "../utils/search";
 const statusBadge = (s) => {
   const map = { present: "green", late: "orange", absent: "red", leave: "purple", field_duty: "teal" };
   return <span className={`badge badge-${map[s] || "blue"}`}>{(s || "no data").replace("_", " ")}</span>;
@@ -21,15 +22,13 @@ export default function MyTeam() {
   const absent = team.filter((t) => t.status === "absent").length;
 
   const filteredTeam = useMemo(() => {
-    const q = query.toLowerCase();
-    if (!q) return team;
-    return team.filter((t) => [t.full_name, t.position, t.status].some((v) => String(v || "").toLowerCase().includes(q)));
+    if (!query.trim()) return team;
+    return team.filter((t) => matchesSearch(t, query, ["full_name", "card_id", "department", "position", "status"]));
   }, [team, query]);
 
   const filteredPending = useMemo(() => {
-    const q = query.toLowerCase();
-    if (!q) return pending;
-    return pending.filter((r) => [r.employee_name, r.request_type, r.reason].some((v) => String(v || "").toLowerCase().includes(q)));
+    if (!query.trim()) return pending;
+    return pending.filter((r) => matchesSearch(r, query, ["employee_name", "employee_department", "request_type", "reason"]));
   }, [pending, query]);
 
   return (
@@ -47,8 +46,7 @@ export default function MyTeam() {
       <div className="panel">
         <div className="panel-header">
           <div className="panel-title">Team Members</div>
-          <label className="search-bar"><Icon name="search" size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search team..." /></label>
-        </div>
+          <label className="search-bar"><Icon name="search" size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name, ID, or department" /></label>        </div>
         <div className="table-wrap">
           <table>
             <thead><tr><th>Employee</th><th>Position</th><th>Check In</th><th>Check Out</th><th>Hours</th><th>Status</th></tr></thead>
@@ -58,8 +56,8 @@ export default function MyTeam() {
                 <tr key={t.id}>
                   <td className="strong-cell">{t.full_name}</td>
                   <td className="td-muted">{t.position || "—"}</td>
-                  <td className="td-muted">{t.first_in ? new Date(t.first_in).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                  <td className="td-muted">{t.last_out ? new Date(t.last_out).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                  <td className="td-muted">{t.first_in ? formatBioTimeTimeValue(t.first_in) : "—"}</td>
+                  <td className="td-muted">{t.last_out ? formatBioTimeTimeValue(t.last_out) : "—"}</td>
                   <td className="td-muted">{t.total_hours ? `${t.total_hours}h` : "—"}</td>
                   <td>{statusBadge(t.status)}</td>
                 </tr>
@@ -80,7 +78,7 @@ export default function MyTeam() {
                   <tr key={r.id}>
                     <td className="strong-cell">{r.employee_name}</td>
                     <td><span className="badge badge-blue">{r.request_type.replace("_", " ")}</span></td>
-                    <td className="td-muted">{new Date(r.date).toLocaleDateString()}</td>
+                    <td className="td-muted">{formatBioTimeDateValue(r.date)}</td>
                     <td className="td-muted">{r.reason || "—"}</td>
                     <td><span className="badge badge-orange">{r.status.replace("_", " ")}</span></td>
                   </tr>

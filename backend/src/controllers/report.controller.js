@@ -1,9 +1,10 @@
 const pool = require("../config/db");
 const { getDepartmentFilter } = require("../utils/departmentFilter");
+const { computeTotalHours, formatTimeHHMM } = require("../services/attendanceTime");
 
 exports.daily = async (req, res) => {
   try {
-    const date = req.query.date || (await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Addis_Ababa')::date AS d")).rows[0].d;
+    const date = req.query.date || (await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Nairobi')::date AS d")).rows[0].d;
     const department = req.query.department;
 
     let whereExtra = "";
@@ -21,22 +22,69 @@ exports.daily = async (req, res) => {
       idx++;
     }
 
-    const result = await pool.query(
-      `SELECT
-        e.id AS employee_id, e.card_id, e.full_name, e.department,
-        TO_CHAR(asci.first_in, 'HH24:MI') AS check_in,
-        TO_CHAR(asci.last_out, 'HH24:MI') AS check_out,
-        asci.total_hours, asci.status, asci.notes,
-        CASE WHEN asci.first_in IS NOT NULL AND (asci.last_out IS NULL OR asci.first_in = asci.last_out) THEN true ELSE false END AS missing_checkout
-       FROM employees e
-       LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date = $1
-       WHERE e.status = 'active' ${whereExtra}
-       ORDER BY e.department, e.full_name`,
-      params
-    );
+    const [dailySummaryResult, dailyLogsResult] = await Promise.all([
+      pool.query(
+        `SELECT
+          e.id AS employee_id, e.card_id, e.full_name, e.department,
+          asci.date,
+          asci.first_in,
+          asci.last_out,
+          TO_CHAR(asci.first_in, 'HH24:MI') AS first_in_time,
+          TO_CHAR(asci.last_out, 'HH24:MI') AS last_out_time,
+          asci.total_hours, asci.status, asci.notes
+         FROM employees e
+         LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date = $1
+         WHERE e.status = 'active' ${whereExtra}
+         ORDER BY e.department, e.full_name`,
+        params
+      ),
+      pool.query(
+        `SELECT
+          al.employee_id,
+          DATE(al.scan_time) AS day,
+          MIN(al.scan_time) AS first_in,
+          MAX(al.scan_time) AS last_out,
+          TO_CHAR(MIN(al.scan_time), 'HH24:MI') AS first_in_time,
+          TO_CHAR(MAX(al.scan_time), 'HH24:MI') AS last_out_time,
+          COUNT(al.id) AS scan_count
+         FROM attendance_logs al
+         JOIN employees e ON e.id = al.employee_id
+         WHERE e.status = 'active' AND DATE(al.scan_time) = $1 ${whereExtra.replace(/AND e\.department = \$\d+/g, "").replace(/AND e\.department = ANY\(\$\d+\)/g, "")}
+         GROUP BY al.employee_id, DATE(al.scan_time)
+         ORDER BY al.employee_id`,
+        [date]
+      ),
+    ]);
+
+    const dailyLogMap = new Map();
+    for (const row of dailyLogsResult.rows) {
+      dailyLogMap.set(`${row.employee_id}:${row.day}`, row);
+    }
+
+    const result = dailySummaryResult.rows.map((r) => {
+      const log = dailyLogMap.get(`${r.employee_id}:${r.date}`);
+      const firstIn = log?.first_in || r.first_in || null;
+      const lastOut = log?.last_out || r.last_out || null;
+      const totalHours = computeTotalHours(firstIn, lastOut);
+      const checkIn = log?.first_in_time || r.first_in_time || formatTimeHHMM(firstIn);
+      const checkOut = log?.last_out_time || r.last_out_time || formatTimeHHMM(lastOut);
+      const hasScan = Boolean(firstIn || lastOut);
+      const isMissingCheckout = r.status === "present_incomplete" || (hasScan && (!lastOut || firstIn === lastOut));
+      const isApproved = r.status === "approved";
+
+      return {
+        ...r,
+        check_in: checkIn,
+        check_out: checkOut,
+        total_hours: totalHours || r.total_hours || 0,
+        missing_checkout: isMissingCheckout,
+        approved: isApproved,
+        approved_type: isApproved ? r.notes : "",
+      };
+    });
 
     let totalEmps = 0, presentCount = 0, absentCount = 0, missingCheckouts = 0, approvedCount = 0, totalHours = 0;
-    const employees = result.rows.map((r) => {
+    const employees = result.map((r) => {
       totalEmps++;
       const hasScan = r.check_in && r.check_in !== "";
       const isMissingCheckout = r.status === "present_incomplete" || (hasScan && r.missing_checkout);
@@ -92,7 +140,7 @@ exports.weekly = async (req, res) => {
     let endDate = end_date;
 
     if (!startDate || !endDate) {
-      const today = (await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Addis_Ababa')::date AS d")).rows[0].d;
+      const today = (await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Nairobi')::date AS d")).rows[0].d;
       if (!startDate) {
         const d = new Date(today + "T12:00:00Z");
         const day = d.getUTCDay();
@@ -142,14 +190,22 @@ exports.weekly = async (req, res) => {
     const result = await pool.query(
       `SELECT
         e.id AS employee_id, e.card_id, e.full_name, e.department,
-        TO_CHAR(asci.date, 'YYYY-MM-DD') AS day_key,
-        TO_CHAR(asci.first_in, 'HH24:MI') AS check_in,
-        TO_CHAR(asci.last_out, 'HH24:MI') AS check_out,
-        asci.total_hours, asci.status, asci.notes,
-        CASE WHEN asci.first_in IS NOT NULL AND (asci.last_out IS NULL OR asci.first_in = asci.last_out) THEN true ELSE false END AS missing_checkout
+        TO_CHAR(wd.day, 'YYYY-MM-DD') AS day_key,
+        TO_CHAR(al.first_in, 'HH24:MI') AS check_in,
+        TO_CHAR(al.last_out, 'HH24:MI') AS check_out,
+        al.scan_count,
+        al.first_in AS first_in_raw,
+        al.last_out AS last_out_raw
        FROM employees e
        CROSS JOIN (SELECT unnest($1::text[])::date AS day) wd
-       LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date = wd.day
+       LEFT JOIN LATERAL (
+         SELECT
+           MIN(al2.scan_time) AS first_in,
+           MAX(al2.scan_time) AS last_out,
+           COUNT(al2.id) AS scan_count
+         FROM attendance_logs al2
+         WHERE al2.employee_id = e.id AND DATE(al2.scan_time) = wd.day
+       ) al ON true
        WHERE e.status = 'active' ${whereExtra}
        ORDER BY e.full_name, wd.day`,
       params
@@ -167,20 +223,19 @@ exports.weekly = async (req, res) => {
           weekly_hours: 0,
         };
       }
-      const isMissingCheckout = row.status === "present_incomplete" || (row.check_in && row.missing_checkout);
-      const isApproved = row.status === "approved";
-      const hasScan = row.check_in && row.check_in !== "";
+      const hasScan = Boolean(row.first_in_raw || row.last_out_raw);
+      const isMissingCheckout = hasScan && (!row.last_out_raw || row.scan_count <= 1);
 
       grouped[row.employee_id].days[row.day_key] = {
         check_in: row.check_in || "",
         check_out: row.check_out || "",
-        total_hours: row.total_hours || 0,
+        total_hours: computeTotalHours(row.first_in_raw, row.last_out_raw),
         missing_checkout: isMissingCheckout,
-        approved: isApproved,
-        approved_type: isApproved ? row.notes : "",
+        approved: false,
+        approved_type: "",
       };
       if (hasScan && !isMissingCheckout) {
-        grouped[row.employee_id].weekly_hours += parseFloat(row.total_hours) || 0;
+        grouped[row.employee_id].weekly_hours += computeTotalHours(row.first_in_raw, row.last_out_raw);
       }
     }
 
@@ -198,7 +253,7 @@ exports.monthly = async (req, res) => {
     let endDate = end_date;
 
     if (!startDate || !endDate) {
-      const today = (await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Addis_Ababa')::date AS d")).rows[0].d;
+      const today = (await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Nairobi')::date AS d")).rows[0].d;
       if (!startDate) {
         const d = new Date(today + "T12:00:00Z");
         d.setUTCDate(1);
@@ -251,14 +306,22 @@ exports.monthly = async (req, res) => {
     const result = await pool.query(
       `SELECT
         e.id AS employee_id, e.card_id, e.full_name, e.department,
-        TO_CHAR(asci.date, 'YYYY-MM-DD') AS day_key,
-        TO_CHAR(asci.first_in, 'HH24:MI') AS check_in,
-        TO_CHAR(asci.last_out, 'HH24:MI') AS check_out,
-        asci.total_hours, asci.status, asci.notes,
-        CASE WHEN asci.first_in IS NOT NULL AND (asci.last_out IS NULL OR asci.first_in = asci.last_out) THEN true ELSE false END AS missing_checkout
+        TO_CHAR(wd.day, 'YYYY-MM-DD') AS day_key,
+        TO_CHAR(al.first_in, 'HH24:MI') AS check_in,
+        TO_CHAR(al.last_out, 'HH24:MI') AS check_out,
+        al.scan_count,
+        al.first_in AS first_in_raw,
+        al.last_out AS last_out_raw
        FROM employees e
        CROSS JOIN (SELECT unnest($1::text[])::date AS day) wd
-       LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date = wd.day
+       LEFT JOIN LATERAL (
+         SELECT
+           MIN(al2.scan_time) AS first_in,
+           MAX(al2.scan_time) AS last_out,
+           COUNT(al2.id) AS scan_count
+         FROM attendance_logs al2
+         WHERE al2.employee_id = e.id AND DATE(al2.scan_time) = wd.day
+       ) al ON true
        WHERE e.status = 'active' ${whereExtra}
        ORDER BY e.full_name, wd.day`,
       params
@@ -276,20 +339,19 @@ exports.monthly = async (req, res) => {
           total_hours: 0,
         };
       }
-      const isMissingCheckout = row.status === "present_incomplete" || (row.check_in && row.missing_checkout);
-      const isApproved = row.status === "approved";
-      const hasScan = row.check_in && row.check_in !== "";
+      const hasScan = Boolean(row.first_in_raw || row.last_out_raw);
+      const isMissingCheckout = hasScan && (!row.last_out_raw || row.scan_count <= 1);
 
       grouped[row.employee_id].days[row.day_key] = {
         check_in: row.check_in || "",
         check_out: row.check_out || "",
-        total_hours: row.total_hours || 0,
+        total_hours: computeTotalHours(row.first_in_raw, row.last_out_raw),
         missing_checkout: isMissingCheckout,
-        approved: isApproved,
-        approved_type: isApproved ? row.notes : "",
+        approved: false,
+        approved_type: "",
       };
       if (hasScan && !isMissingCheckout) {
-        grouped[row.employee_id].total_hours += parseFloat(row.total_hours) || 0;
+        grouped[row.employee_id].total_hours += computeTotalHours(row.first_in_raw, row.last_out_raw);
       }
     }
 
@@ -317,7 +379,7 @@ exports.monthly = async (req, res) => {
 exports.department = async (req, res) => {
   try {
     const { department, start_date, end_date } = req.query;
-    const todayResult = await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Addis_Ababa')::date AS today");
+    const todayResult = await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Nairobi')::date AS today");
     const today = todayResult.rows[0].today;
     const start = start_date || today;
     const end = end_date || today;
@@ -341,15 +403,24 @@ exports.department = async (req, res) => {
     const result = await pool.query(
       `SELECT
         e.id AS employee_id, e.card_id, e.full_name, e.department,
-        TO_CHAR(asci.first_in, 'HH24:MI') AS check_in,
-        TO_CHAR(asci.last_out, 'HH24:MI') AS check_out,
-        asci.total_hours, asci.status, asci.notes,
-        TO_CHAR(asci.date, 'YYYY-MM-DD') AS date_key,
-        CASE WHEN asci.first_in IS NOT NULL AND (asci.last_out IS NULL OR asci.first_in = asci.last_out) THEN true ELSE false END AS missing_checkout
+        TO_CHAR(gs.day, 'YYYY-MM-DD') AS date_key,
+        TO_CHAR(al.first_in, 'HH24:MI') AS check_in,
+        TO_CHAR(al.last_out, 'HH24:MI') AS check_out,
+        al.scan_count,
+        al.first_in AS first_in_raw,
+        al.last_out AS last_out_raw
        FROM employees e
-       LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date BETWEEN $1 AND $2
+       CROSS JOIN generate_series($1::date, $2::date, interval '1 day') AS gs(day)
+       LEFT JOIN LATERAL (
+         SELECT
+           MIN(al2.scan_time) AS first_in,
+           MAX(al2.scan_time) AS last_out,
+           COUNT(al2.id) AS scan_count
+         FROM attendance_logs al2
+         WHERE al2.employee_id = e.id AND DATE(al2.scan_time) = gs.day
+       ) al ON true
        WHERE e.department = $3 AND e.status = 'active'
-       ORDER BY e.full_name, asci.date`,
+       ORDER BY e.full_name, gs.day`,
       [start, end, effectiveDept]
     );
 
@@ -367,21 +438,20 @@ exports.department = async (req, res) => {
         };
       }
       if (row.date_key) {
-        const isMissingCheckout = row.status === "present_incomplete" || (row.check_in && row.missing_checkout);
-        const isApproved = row.status === "approved";
-        const hasScan = row.check_in && row.check_in !== "";
+        const hasScan = Boolean(row.first_in_raw || row.last_out_raw);
+        const isMissingCheckout = hasScan && (!row.last_out_raw || row.scan_count <= 1);
         empMap[row.employee_id].records.push({
           date: row.date_key,
           check_in: row.check_in || "",
           check_out: row.check_out || "",
-          total_hours: row.total_hours || 0,
-          status: row.status,
+          total_hours: computeTotalHours(row.first_in_raw, row.last_out_raw),
+          status: hasScan ? (isMissingCheckout ? "present_incomplete" : "present") : "absent",
           missing_checkout: isMissingCheckout,
-          approved: isApproved,
-          approved_type: isApproved ? row.notes : "",
+          approved: false,
+          approved_type: "",
         });
         if (hasScan && !isMissingCheckout) {
-          empMap[row.employee_id].total_hours += parseFloat(row.total_hours) || 0;
+          empMap[row.employee_id].total_hours += computeTotalHours(row.first_in_raw, row.last_out_raw);
           empMap[row.employee_id].days_with_scan++;
         }
       }
@@ -405,7 +475,7 @@ exports.department = async (req, res) => {
 
 exports.dashboardStats = async (req, res) => {
   try {
-    const todayResult = await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Addis_Ababa')::date AS today");
+    const todayResult = await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Nairobi')::date AS today");
     const today = todayResult.rows[0].today;
 
     const isAdmin = req.user.role === "admin";

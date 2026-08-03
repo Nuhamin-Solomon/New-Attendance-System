@@ -93,6 +93,30 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .panel-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .panel-actions-row { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
 
+.period-toggle { display: inline-flex; background: #f3f5f9; border: 1px solid var(--border); border-radius: 8px; padding: 3px; gap: 2px; }
+.period-btn { border: 0; background: transparent; color: var(--text-muted); font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: .15s; }
+.period-btn:hover { color: var(--primary); }
+.period-btn.active { background: var(--primary); color: #fff; box-shadow: 0 2px 6px rgba(2,64,79,.25); }
+
+.summary-employee-row { display: flex; gap: 10px; align-items: center; padding: 14px 20px 0; flex-wrap: wrap; }
+.summary-period { color: var(--secondary); font-size: 13px; font-weight: 700; margin-left: auto; white-space: nowrap; }
+
+.day-status-list { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 20px 0; }
+.day-status-chip { flex: 1 1 110px; min-width: 110px; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; text-align: center; background: #fbfcfe; }
+.day-status-name { display: block; font-size: 11px; font-weight: 800; color: var(--primary); text-transform: uppercase; letter-spacing: .04em; }
+.day-status-date { display: block; font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+.day-status-value { display: block; margin-top: 3px; font-size: 12px; font-weight: 700; }
+.day-status-chip.status-present { border-color: rgba(16,185,129,.35); }
+.day-status-chip.status-present .day-status-value { color: var(--success); }
+.day-status-chip.status-absent { border-color: rgba(239,68,68,.35); }
+.day-status-chip.status-absent .day-status-value { color: var(--danger); }
+.day-status-chip.status-missing_checkout { border-color: rgba(235,125,35,.35); }
+.day-status-chip.status-missing_checkout .day-status-value { color: var(--secondary); }
+.day-status-chip.status-approved { border-color: rgba(59,130,246,.35); }
+.day-status-chip.status-approved .day-status-value { color: var(--info); }
+.day-status-chip.status-leave { border-color: rgba(139,92,246,.35); }
+.day-status-chip.status-leave .day-status-value { color: var(--purple); }
+
 /* ========== STATS ========== */
 .stats-grid { display: grid; gap: 14px; margin-bottom: 22px; }
 .stats-grid-3 { grid-template-columns: repeat(3, 1fr); }

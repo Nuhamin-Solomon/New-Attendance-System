@@ -3,9 +3,10 @@ import { useParams, useNavigate } from "react-router-dom";
 import API from "../services/api";
 import Icon from "../components/Icon";
 import { useAuth } from "../context/AuthContext";
+import { formatBioTimeDateTimeValue, formatBioTimeTimeValue } from "../utils/time";
 
 const initials = (name = "") => name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase() || "?";
-const formatTime = (iso) => iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: true }) : "\u2014";
+const formatTime = (iso) => iso ? formatBioTimeDateTimeValue(iso) : "—";
 
 function SearchableSelect({ items, value, onChange, placeholder, searchFields, displayField, idField }) {
   const [search, setSearch] = useState("");
@@ -288,7 +289,7 @@ export default function EmployeeProfile() {
                 {attendance.length ? attendance.slice(0, 50).map((a) => (
                   <tr key={a.id}>
                     <td>{formatTime(a.scan_time)}</td>
-                    <td className="td-muted">{new Date(a.scan_time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</td>
+                    <td className="td-muted">{formatBioTimeTimeValue(a.scan_time)}</td>
                     <td><span className="badge badge-green">{a.source || "BioTime"}</span></td>
                   </tr>
                 )) : <tr><td colSpan="3" className="table-message">No attendance records found.</td></tr>}

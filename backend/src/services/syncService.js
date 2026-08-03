@@ -64,12 +64,12 @@ const computeAttendanceSummary = async () => {
   const result = await pool.query(`
     SELECT
       al.employee_id,
-      DATE(al.scan_time AT TIME ZONE 'Africa/Addis_Ababa') AS work_date,
+      DATE(al.scan_time) AS work_date,
       MIN(al.scan_time) AS first_in,
       MAX(al.scan_time) AS last_out,
       COUNT(al.id) AS scan_count
     FROM attendance_logs al
-    GROUP BY al.employee_id, DATE(al.scan_time AT TIME ZONE 'Africa/Addis_Ababa')
+    GROUP BY al.employee_id, DATE(al.scan_time)
   `);
 
   const approvedRequestsResult = await pool.query(`
@@ -86,9 +86,9 @@ const computeAttendanceSummary = async () => {
 
   let computed = 0;
   for (const row of result.rows) {
-    const firstIn = new Date(row.first_in);
-    const lastOut = new Date(row.last_out);
-    const diffMs = lastOut - firstIn;
+    const firstIn = row.first_in;
+    const lastOut = row.last_out;
+    const diffMs = new Date(lastOut) - new Date(firstIn);
     const totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
 
     const hasMultipleScans = parseInt(row.scan_count) > 1;
