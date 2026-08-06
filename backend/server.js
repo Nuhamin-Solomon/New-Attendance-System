@@ -18,13 +18,20 @@ const summaryRoutes = require("./src/routes/summary.routes");
 const departmentRoutes = require("./src/routes/department.routes");
 const dataRoutes = require("./src/routes/data.routes");
 
-const { fullSync, computeAttendanceSummary } = require("./src/services/syncService");
+const {
+  fullSync,
+  computeAttendanceSummary,
+} = require("./src/services/syncService");
 
 const app = express();
 
+// Allow requests from any frontend
 app.use(cors());
+
+// Parse JSON
 app.use(express.json({ limit: "10mb" }));
 
+// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/employees", employeeRoutes);
@@ -41,40 +48,47 @@ app.use("/api/summary", summaryRoutes);
 app.use("/api/departments", departmentRoutes);
 app.use("/api/data", dataRoutes);
 
+// Root
 app.get("/", (req, res) => {
-  res.json({ success: true, message: "Kifiya Attendance Backend Running" });
+  res.json({
+    success: true,
+    message: "Attendance Backend Running",
+  });
 });
 
+// Health Check
 app.get("/api/health", (req, res) => {
-  res.json({ ok: true, uptime: process.uptime() });
+  res.json({
+    ok: true,
+    uptime: process.uptime(),
+  });
 });
 
-// The Express app is exported so it can be mounted as a serverless function
-// (Vercel api/index.js). Only when run directly (`node server.js`) do we bind a
-// port and start background jobs (summary refresh + BioTime auto-sync) — those
-// long-running timers must not run inside a serverless function.
 module.exports = app;
 
 if (require.main === module) {
   const PORT = process.env.PORT || 5000;
-  app.listen(PORT, async () => {
-    console.log(`Server running on port ${PORT}`);
 
-    console.log("Computing attendance summary from existing data...");
+  app.listen(PORT, "0.0.0.0", async () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+
+    console.log("Computing attendance summary...");
+
     try {
       await computeAttendanceSummary();
-      console.log("Initial summary computation done.");
-    } catch (e) {
-      console.error("Initial computation error:", e.message);
+      console.log("Attendance summary completed.");
+    } catch (err) {
+      console.error(err);
     }
 
-    console.log("Starting auto-sync every 60 seconds from BioTime...");
+    console.log("Starting BioTime Auto Sync...");
+
     setInterval(async () => {
       try {
         await fullSync();
-      } catch (e) {
-        console.error("Auto-sync error:", e.message);
+      } catch (err) {
+        console.error(err);
       }
-    }, 60 * 1000);
+    }, 60000);
   });
 }
