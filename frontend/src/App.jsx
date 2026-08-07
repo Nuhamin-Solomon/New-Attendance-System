@@ -20,6 +20,7 @@ import ApprovalQueuePage from "./pages/ApprovalQueue";
 import NotificationsPage from "./pages/Notifications";
 import WeeklyReportPage from "./pages/WeeklyReport";
 import MonthlyReportPage from "./pages/MonthlyReport";
+import MonthlySummaryPage from "./pages/MonthlySummary";
 import DailyReportPage from "./pages/DailyReport";
 import DepartmentReportPage from "./pages/Reports/DepartmentReport";
 import UsersPage from "./pages/admin/Users";
@@ -90,6 +91,7 @@ function AppRoutes() {
               <Route path="/daily-report" element={<ProtectedRoute roles={["admin", "hr", "manager"]}><DailyReportPage /></ProtectedRoute>} />
               <Route path="/weekly-report" element={<ProtectedRoute roles={["admin", "hr", "manager"]}><WeeklyReportPage /></ProtectedRoute>} />
               <Route path="/monthly-report" element={<ProtectedRoute roles={["admin", "hr", "manager"]}><MonthlyReportPage /></ProtectedRoute>} />
+              <Route path="/monthly-summary" element={<ProtectedRoute roles={["admin", "hr", "manager"]}><MonthlySummaryPage /></ProtectedRoute>} />
               <Route path="/department-report" element={<ProtectedRoute roles={["admin", "hr", "manager"]}><DepartmentReportPage /></ProtectedRoute>} />
               <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
               <Route path="/admin/users" element={<ProtectedRoute roles={["admin"]}><UsersPage /></ProtectedRoute>} />

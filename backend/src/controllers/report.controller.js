@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const { getDepartmentFilter } = require("../utils/departmentFilter");
-const { computeTotalHours, formatTimeHHMM } = require("../services/attendanceTime");
+const { computeTotalHours } = require("../services/attendanceTime");
+const { workingDayKeys, getWorkingDays, isWorkingDay } = require("../services/workingDays");
 
 exports.daily = async (req, res) => {
   try {
@@ -66,8 +67,8 @@ exports.daily = async (req, res) => {
       const firstIn = log?.first_in || r.first_in || null;
       const lastOut = log?.last_out || r.last_out || null;
       const totalHours = computeTotalHours(firstIn, lastOut);
-      const checkIn = log?.first_in_time || r.first_in_time || formatTimeHHMM(firstIn);
-      const checkOut = log?.last_out_time || r.last_out_time || formatTimeHHMM(lastOut);
+      const checkIn = log?.first_in_time || r.first_in_time || (firstIn ? new Date(firstIn).toTimeString().slice(0, 5) : "");
+      const checkOut = log?.last_out_time || r.last_out_time || (lastOut ? new Date(lastOut).toTimeString().slice(0, 5) : "");
       const hasScan = Boolean(firstIn || lastOut);
       const isMissingCheckout = r.status === "present_incomplete" || (hasScan && (!lastOut || firstIn === lastOut));
       const isApproved = r.status === "approved";
@@ -158,6 +159,7 @@ exports.weekly = async (req, res) => {
     const days = [];
     const start = new Date(startDate + "T12:00:00Z");
     const end = new Date(endDate + "T12:00:00Z");
+    const workingDays = await getWorkingDays();
     let cur = new Date(start);
     while (cur <= end) {
       const y = cur.getUTCFullYear();
@@ -166,7 +168,7 @@ exports.weekly = async (req, res) => {
       const dateKey = `${y}-${m}-${dd}`;
       const dayName = cur.toLocaleDateString("en", { weekday: "short", timeZone: "UTC" });
       const dayLabel = cur.toLocaleDateString("en", { day: "numeric", month: "short", timeZone: "UTC" });
-      days.push({ key: dateKey, dayName, dayLabel });
+      if (isWorkingDay(cur.getUTCDay(), workingDays)) days.push({ key: dateKey, dayName, dayLabel });
       cur.setUTCDate(cur.getUTCDate() + 1);
     }
 
@@ -231,6 +233,7 @@ exports.weekly = async (req, res) => {
         check_out: row.check_out || "",
         total_hours: computeTotalHours(row.first_in_raw, row.last_out_raw),
         missing_checkout: isMissingCheckout,
+        absent: !hasScan,
         approved: false,
         approved_type: "",
       };
@@ -270,6 +273,7 @@ exports.monthly = async (req, res) => {
     const days = [];
     const start = new Date(startDate + "T12:00:00Z");
     const end = new Date(endDate + "T12:00:00Z");
+    const workingDays = await getWorkingDays();
     let cur = new Date(start);
     while (cur <= end) {
       const y = cur.getUTCFullYear();
@@ -282,7 +286,7 @@ exports.monthly = async (req, res) => {
 
       const weekNumber = Math.floor((days.length + new Date(startDate + "T12:00:00Z").getUTCDay()) / 7);
 
-      days.push({ key: dateKey, dayNum, dayName, monthDay, weekNumber });
+      if (isWorkingDay(cur.getUTCDay(), workingDays)) days.push({ key: dateKey, dayNum, dayName, monthDay, weekNumber });
       cur.setUTCDate(cur.getUTCDate() + 1);
     }
 
@@ -347,6 +351,7 @@ exports.monthly = async (req, res) => {
         check_out: row.check_out || "",
         total_hours: computeTotalHours(row.first_in_raw, row.last_out_raw),
         missing_checkout: isMissingCheckout,
+        absent: !hasScan,
         approved: false,
         approved_type: "",
       };
@@ -370,6 +375,366 @@ exports.monthly = async (req, res) => {
         dayCount: weekDays.length,
       })),
       employees: Object.values(grouped),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+function dateKeyUTC(d) {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+function dateKey(value) {
+  if (value instanceof Date) {
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(value.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  return String(value).slice(0, 10);
+}
+
+async function getAttendanceSettings() {
+  const res = await pool.query(
+    `SELECT key, value FROM settings WHERE key = ANY($1)`,
+    [["working_hours_start", "working_hours_end", "overtime_threshold_hours", "late_threshold_minutes", "standard_working_hours", "working_days"]]
+  );
+  const map = {};
+  for (const r of res.rows) map[r.key] = r.value;
+  const toMinutes = (t) => {
+    const [h, m] = String(t || "00:00").split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+  return {
+    startMinutes: toMinutes(map.working_hours_start || "08:00"),
+    endMinutes: toMinutes(map.working_hours_end || "17:00"),
+    lateThresholdMin: parseInt(map.late_threshold_minutes || "15", 10),
+    overtimeThreshold: parseFloat(map.overtime_threshold_hours || "8"),
+    working_hours_start: map.working_hours_start || "08:00",
+    working_hours_end: map.working_hours_end || "17:00",
+    late_threshold_minutes: map.late_threshold_minutes || "15",
+    overtime_threshold_hours: map.overtime_threshold_hours || "8",
+    standard_working_hours: map.standard_working_hours || "8",
+    working_days: map.working_days || "1,2,3,4,5",
+  };
+}
+
+const hhmm = (totalMinutes) => {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+};
+
+function aggregateAttendance(employeeId, logMap, approvedSet, leaveSet, dayKeys, settings) {
+  const { startMinutes, endMinutes, lateThresholdMin, overtimeThreshold } = settings;
+  const lateAfter = hhmm(startMinutes + lateThresholdMin);
+  const endTime = hhmm(endMinutes);
+
+  let presentDays = 0, missingCheckout = 0, approvedDays = 0, leaveDays = 0;
+  let totalHours = 0, overtimeHours = 0, lateArrivals = 0, earlyDepartures = 0;
+  const days = [];
+
+  for (const dayKey of dayKeys) {
+    const [yd, md, dd] = dayKey.split("-").map(Number);
+    const dayName = new Date(Date.UTC(yd, md - 1, dd)).toLocaleDateString("en-US", { weekday: "long" });
+    const log = logMap[dayKey];
+    let status, checkIn = "", checkOut = "", hours = 0, overtime = 0, isLate = false, early = false;
+
+    if (log) {
+      hours = computeTotalHours(log.first_in, log.last_out);
+      totalHours += hours;
+      const incomplete = parseInt(log.scan_count, 10) <= 1;
+      if (incomplete) {
+        missingCheckout++;
+        status = "missing_checkout";
+      } else {
+        presentDays++;
+        status = "present";
+        if (log.first_in_time && log.first_in_time > lateAfter) {
+          lateArrivals++;
+          isLate = true;
+        }
+        if (log.last_out_time && log.last_out_time < endTime) {
+          earlyDepartures++;
+          early = true;
+        }
+        if (hours > overtimeThreshold) {
+          overtime = Math.round((hours - overtimeThreshold) * 100) / 100;
+          overtimeHours += overtime;
+        }
+      }
+      checkIn = log.first_in_time || "";
+      checkOut = log.last_out_time || "";
+    } else if (approvedSet.has(dayKey)) {
+      approvedDays++;
+      status = "approved";
+    } else if (leaveSet.has(dayKey)) {
+      leaveDays++;
+      status = "leave";
+    } else {
+      status = "absent";
+    }
+
+    days.push({
+      date: dayKey, day: dayName, check_in: checkIn, check_out: checkOut,
+      total_hours: hours, overtime, status, is_late: isLate, early_departure: early,
+    });
+  }
+
+  const absentDays = Math.max(dayKeys.length - presentDays - missingCheckout - approvedDays - leaveDays, 0);
+
+  return {
+    total_hours: Math.round(totalHours * 100) / 100,
+    overtime_hours: Math.round(overtimeHours * 100) / 100,
+    present_days: presentDays,
+    late_arrivals: lateArrivals,
+    early_departures: earlyDepartures,
+    missing_checkouts: missingCheckout,
+    absent_days: absentDays,
+    approved_days: approvedDays,
+    leave_days: leaveDays,
+    days,
+  };
+}
+
+function applyStatusFilter(employees, status) {
+  if (!status || status === "all") return employees;
+  switch (status) {
+    case "late": return employees.filter((e) => e.late_arrivals > 0);
+    case "early_departure": return employees.filter((e) => e.early_departures > 0);
+    case "absent": return employees.filter((e) => e.absent_days > 0);
+    case "missing_checkout": return employees.filter((e) => e.missing_checkouts > 0);
+    case "approved": return employees.filter((e) => e.approved_days > 0);
+    case "leave": return employees.filter((e) => e.leave_days > 0);
+    case "present": return employees.filter((e) => e.present_days > 0 && e.absent_days === 0);
+    default: return employees;
+  }
+}
+
+exports.summaryMonthly = async (req, res) => {
+  try {
+    const { start_date, end_date, department, search, status } = req.query;
+
+    let startDate = start_date;
+    let endDate = end_date;
+    if (!startDate || !endDate) {
+      const today = (await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Nairobi')::date AS d")).rows[0].d;
+      if (!startDate) {
+        const d = new Date(today + "T12:00:00Z");
+        d.setUTCDate(1);
+        startDate = d.toISOString().split("T")[0];
+      }
+      if (!endDate) {
+        const d = new Date(startDate + "T12:00:00Z");
+        d.setUTCMonth(d.getUTCMonth() + 1);
+        d.setUTCDate(d.getUTCDate() - 1);
+        endDate = d.toISOString().split("T")[0];
+      }
+    }
+    const dayKeys = await workingDayKeys(startDate, endDate);
+
+    let whereExtra = "";
+    const params = [];
+    let idx = 1;
+
+    const deptFilter = getDepartmentFilter(req.user, idx);
+    if (deptFilter.clause) {
+      whereExtra += deptFilter.clause;
+      params.push(deptFilter.value);
+      idx = deptFilter.nextIdx;
+    } else if (department) {
+      whereExtra += ` AND e.department = $${idx}`;
+      params.push(department);
+      idx++;
+    }
+
+    if (search) {
+      whereExtra += ` AND (e.full_name ILIKE $${idx} OR e.card_id ILIKE $${idx})`;
+      params.push(`%${search}%`);
+      idx++;
+    }
+
+    const employeesResult = await pool.query(
+      `SELECT e.id AS employee_id, e.card_id, e.full_name, e.department
+       FROM employees e
+       WHERE e.status = 'active' ${whereExtra}
+       ORDER BY e.full_name`,
+      params
+    );
+    const employees = employeesResult.rows;
+    const settings = await getAttendanceSettings();
+
+    if (employees.length === 0) {
+      return res.json({
+        start_date: startDate, end_date: endDate,
+        working_days: dayKeys.length, settings,
+        employees: [],
+      });
+    }
+
+    const ids = employees.map((e) => e.employee_id);
+
+    const [logsResult, approvedResult, leaveResult] = await Promise.all([
+      pool.query(
+        `SELECT al.employee_id, DATE(al.scan_time) AS day, COUNT(al.id) AS scan_count,
+                MIN(al.scan_time) AS first_in, MAX(al.scan_time) AS last_out,
+                TO_CHAR(MIN(al.scan_time), 'HH24:MI') AS first_in_time,
+                TO_CHAR(MAX(al.scan_time), 'HH24:MI') AS last_out_time
+         FROM attendance_logs al
+         WHERE al.employee_id = ANY($1::int[])
+           AND al.scan_time >= $2::date
+           AND al.scan_time < ($3::date + INTERVAL '1 day')
+         GROUP BY al.employee_id, DATE(al.scan_time)`,
+        [ids, startDate, endDate]
+      ),
+      pool.query(
+        `SELECT DISTINCT ar.employee_id, ar.date
+         FROM attendance_requests ar
+         WHERE ar.employee_id = ANY($1::int[])
+           AND (ar.status = 'approved' OR (ar.manager_status = 'approved' AND ar.hr_status = 'approved'))
+           AND ar.date >= $2::date AND ar.date <= $3::date`,
+        [ids, startDate, endDate]
+      ),
+      pool.query(
+        `SELECT DISTINCT asci.employee_id, asci.date
+         FROM attendance_summary asci
+         WHERE asci.employee_id = ANY($1::int[])
+           AND asci.status IN ('on_leave', 'leave')
+           AND asci.date >= $2::date AND asci.date <= $3::date`,
+        [ids, startDate, endDate]
+      ),
+    ]);
+
+    const logMaps = {};
+    const approvedSets = {};
+    const leaveSets = {};
+    employees.forEach((e) => {
+      logMaps[e.employee_id] = {};
+      approvedSets[e.employee_id] = new Set();
+      leaveSets[e.employee_id] = new Set();
+    });
+    for (const row of logsResult.rows) {
+      if (logMaps[row.employee_id]) logMaps[row.employee_id][dateKey(row.day)] = row;
+    }
+    for (const row of approvedResult.rows) {
+      if (approvedSets[row.employee_id]) approvedSets[row.employee_id].add(dateKey(row.date));
+    }
+    for (const row of leaveResult.rows) {
+      if (leaveSets[row.employee_id]) leaveSets[row.employee_id].add(dateKey(row.date));
+    }
+
+    let output = employees.map((emp) => {
+      const agg = aggregateAttendance(
+        emp.employee_id, logMaps[emp.employee_id], approvedSets[emp.employee_id],
+        leaveSets[emp.employee_id], dayKeys, settings
+      );
+      const { days, ...metrics } = agg;
+      return {
+        employee_id: emp.employee_id,
+        card_id: emp.card_id,
+        full_name: emp.full_name,
+        department: emp.department,
+        ...metrics,
+        days,
+      };
+    });
+
+    output = applyStatusFilter(output, status);
+
+    res.json({
+      start_date: startDate, end_date: endDate,
+      working_days: dayKeys.length, settings,
+      employees: output,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+exports.employeeDaily = async (req, res) => {
+  try {
+    const { employee_id, start_date, end_date, month } = req.query;
+    if (!employee_id) return res.status(400).json({ error: "employee_id is required" });
+
+    const employeeResult = await pool.query(
+      `SELECT id AS employee_id, card_id, full_name, department FROM employees WHERE id = $1`,
+      [employee_id]
+    );
+    if (employeeResult.rows.length === 0) return res.status(404).json({ error: "Employee not found" });
+    const employee = employeeResult.rows[0];
+
+    if (req.user.role !== "admin") {
+      const assigned = (req.user.assigned_departments || []).map((d) => d.department_name);
+      if (assigned.length === 0 || !assigned.includes(employee.department)) {
+        return res.status(403).json({ error: "Not authorized to view this employee's attendance" });
+      }
+    }
+
+    let startKey, endKey, period;
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      const [y, m] = month.split("-").map(Number);
+      const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      startKey = `${month}-01`;
+      endKey = `${month}-${String(daysInMonth).padStart(2, "0")}`;
+      period = month;
+    } else if (start_date && end_date && /^\d{4}-\d{2}-\d{2}$/.test(start_date) && /^\d{4}-\d{2}-\d{2}$/.test(end_date)) {
+      if (start_date > end_date) return res.status(400).json({ error: "start_date must be before end_date" });
+      startKey = start_date;
+      endKey = end_date;
+      period = `${startKey} / ${endKey}`;
+    } else {
+      return res.status(400).json({ error: "Provide month (YYYY-MM) or start_date & end_date (YYYY-MM-DD)" });
+    }
+
+    const dayKeys = await workingDayKeys(startKey, endKey);
+    const settings = await getAttendanceSettings();
+
+    const [logsResult, approvedResult, leaveResult] = await Promise.all([
+      pool.query(
+        `SELECT DATE(al.scan_time) AS day, COUNT(al.id) AS scan_count,
+                MIN(al.scan_time) AS first_in, MAX(al.scan_time) AS last_out,
+                TO_CHAR(MIN(al.scan_time), 'HH24:MI') AS first_in_time,
+                TO_CHAR(MAX(al.scan_time), 'HH24:MI') AS last_out_time
+         FROM attendance_logs al
+         WHERE al.employee_id = $1
+           AND al.scan_time >= $2::date
+           AND al.scan_time < ($3::date + INTERVAL '1 day')
+         GROUP BY DATE(al.scan_time)`,
+        [employee_id, startKey, endKey]
+      ),
+      pool.query(
+        `SELECT DISTINCT date FROM attendance_requests
+         WHERE employee_id = $1
+           AND (status = 'approved' OR (manager_status = 'approved' AND hr_status = 'approved'))
+           AND date >= $2::date AND date <= $3::date`,
+        [employee_id, startKey, endKey]
+      ),
+      pool.query(
+        `SELECT DISTINCT date FROM attendance_summary
+         WHERE employee_id = $1 AND status IN ('on_leave', 'leave')
+           AND date >= $2::date AND date <= $3::date`,
+        [employee_id, startKey, endKey]
+      ),
+    ]);
+
+    const logMap = {};
+    for (const row of logsResult.rows) logMap[dateKey(row.day)] = row;
+    const approvedSet = new Set(approvedResult.rows.map((r) => dateKey(r.date)));
+    const leaveSet = new Set(leaveResult.rows.map((r) => dateKey(r.date)));
+
+    const agg = aggregateAttendance(employee_id, logMap, approvedSet, leaveSet, dayKeys, settings);
+    const { days, ...metrics } = agg;
+
+    res.json({
+      employee,
+      period,
+      start_date: startKey,
+      end_date: endKey,
+      working_days: dayKeys.length,
+      settings,
+      ...metrics,
+      days,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -400,6 +765,8 @@ exports.department = async (req, res) => {
       return res.json({ departments: departments.rows.map((d) => d.department) });
     }
 
+    const workingDays = await getWorkingDays();
+
     const result = await pool.query(
       `SELECT
         e.id AS employee_id, e.card_id, e.full_name, e.department,
@@ -420,8 +787,9 @@ exports.department = async (req, res) => {
          WHERE al2.employee_id = e.id AND DATE(al2.scan_time) = gs.day
        ) al ON true
        WHERE e.department = $3 AND e.status = 'active'
+         AND EXTRACT(DOW FROM gs.day) = ANY($4::int[])
        ORDER BY e.full_name, gs.day`,
-      [start, end, effectiveDept]
+      [start, end, effectiveDept, workingDays]
     );
 
     const empMap = {};
@@ -447,6 +815,7 @@ exports.department = async (req, res) => {
           total_hours: computeTotalHours(row.first_in_raw, row.last_out_raw),
           status: hasScan ? (isMissingCheckout ? "present_incomplete" : "present") : "absent",
           missing_checkout: isMissingCheckout,
+          absent: !hasScan,
           approved: false,
           approved_type: "",
         });
@@ -477,6 +846,8 @@ exports.dashboardStats = async (req, res) => {
   try {
     const todayResult = await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Nairobi')::date AS today");
     const today = todayResult.rows[0].today;
+    const workingDays = await getWorkingDays();
+    const todayIsWorkingDay = workingDays.includes(new Date(today + "T12:00:00Z").getUTCDay());
 
     const isAdmin = req.user.role === "admin";
     const assignedDepts = req.user.assigned_departments || [];
@@ -493,7 +864,9 @@ exports.dashboardStats = async (req, res) => {
     }
 
     let todaySummary;
-    if (isAdmin) {
+    if (!todayIsWorkingDay) {
+      todaySummary = { rows: [] };
+    } else if (isAdmin) {
       todaySummary = await pool.query(`SELECT status, COUNT(*) AS count FROM attendance_summary WHERE date = $1 GROUP BY status`, [today]);
     } else if (hasDeptFilter) {
       todaySummary = await pool.query(
@@ -514,12 +887,14 @@ exports.dashboardStats = async (req, res) => {
     }
 
     const totalAccounted = Object.values(statusCounts).reduce((s, v) => s + v, 0);
-    if (totalAccounted < totalEmps) {
+    if (totalAccounted < totalEmps && todayIsWorkingDay) {
       statusCounts.absent = (statusCounts.absent || 0) + (totalEmps - totalAccounted);
     }
 
     let deptStats;
-    if (isAdmin) {
+    if (!todayIsWorkingDay) {
+      deptStats = { rows: [] };
+    } else if (isAdmin) {
       deptStats = await pool.query(
         `SELECT e.department,
                 COUNT(*) AS total,
@@ -550,8 +925,9 @@ exports.dashboardStats = async (req, res) => {
     if (isAdmin) {
       trend = await pool.query(
         `SELECT TO_CHAR(date, 'YYYY-MM-DD') AS date_key, status, COUNT(*) AS count
-         FROM attendance_summary WHERE date >= $1 GROUP BY date, status ORDER BY date`,
-        [thirtyDaysAgo]
+         FROM attendance_summary WHERE date >= $1 AND EXTRACT(DOW FROM date) = ANY($2::int[])
+         GROUP BY date, status ORDER BY date`,
+        [thirtyDaysAgo, workingDays]
       );
     } else if (hasDeptFilter) {
       trend = await pool.query(
@@ -559,8 +935,9 @@ exports.dashboardStats = async (req, res) => {
          FROM attendance_summary t
          JOIN employees e ON e.id = t.employee_id
          WHERE t.date >= $1 AND e.department = ANY($2) AND e.status = 'active'
+           AND EXTRACT(DOW FROM t.date) = ANY($3::int[])
          GROUP BY t.date, t.status ORDER BY t.date`,
-        [thirtyDaysAgo, deptNames]
+        [thirtyDaysAgo, deptNames, workingDays]
       );
     } else {
       trend = { rows: [] };

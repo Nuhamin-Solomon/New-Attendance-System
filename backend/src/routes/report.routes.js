@@ -8,6 +8,8 @@ router.get("/dashboard", ctrl.dashboardStats);
 router.get("/daily", authorize("admin", "hr", "manager"), ctrl.daily);
 router.get("/weekly", authorize("admin", "hr", "manager"), ctrl.weekly);
 router.get("/monthly", authorize("admin", "hr", "manager"), ctrl.monthly);
+router.get("/summary-monthly", authorize("admin", "hr", "manager"), ctrl.summaryMonthly);
+router.get("/employee-daily", authorize("admin", "hr", "manager"), ctrl.employeeDaily);
 router.get("/department", authorize("admin", "hr", "manager"), ctrl.department);
 
 module.exports = router;

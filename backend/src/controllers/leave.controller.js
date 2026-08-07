@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { getDepartmentFilter } = require("../utils/departmentFilter");
+const { getWorkingDays } = require("../services/workingDays");
 
 async function logAudit(userId, action, entityId, details) {
   await pool.query(
@@ -9,25 +10,27 @@ async function logAudit(userId, action, entityId, details) {
 }
 
 async function getLeaveDayCount(startDate, endDate) {
+  const workingDays = await getWorkingDays();
   const s = new Date(startDate);
   const e = new Date(endDate);
   let count = 0;
   const d = new Date(s);
   while (d <= e) {
-    const dow = d.getDay();
-    if (dow !== 0 && dow !== 6) count++;
-    d.setDate(d.getDate() + 1);
+    const dow = d.getUTCDay();
+    if (workingDays.includes(dow)) count++;
+    d.setUTCDate(d.getUTCDate() + 1);
   }
   return count || 1;
 }
 
 async function markLeaveDates(employeeId, startDate, endDate) {
+  const workingDays = await getWorkingDays();
   const s = new Date(startDate);
   const e = new Date(endDate);
   const d = new Date(s);
   while (d <= e) {
-    const dow = d.getDay();
-    if (dow !== 0 && dow !== 6) {
+    const dow = d.getUTCDay();
+    if (workingDays.includes(dow)) {
       const dateStr = d.toISOString().split("T")[0];
       await pool.query(
         `INSERT INTO attendance_summary (employee_id, date, status, notes)
@@ -36,17 +39,18 @@ async function markLeaveDates(employeeId, startDate, endDate) {
         [employeeId, dateStr]
       );
     }
-    d.setDate(d.getDate() + 1);
+    d.setUTCDate(d.getUTCDate() + 1);
   }
 }
 
 async function revertLeaveDates(employeeId, startDate, endDate) {
+  const workingDays = await getWorkingDays();
   const s = new Date(startDate);
   const e = new Date(endDate);
   const d = new Date(s);
   while (d <= e) {
-    const dow = d.getDay();
-    if (dow !== 0 && dow !== 6) {
+    const dow = d.getUTCDay();
+    if (workingDays.includes(dow)) {
       const dateStr = d.toISOString().split("T")[0];
       const logs = await pool.query(
         `SELECT MIN(scan_time) AS first_in, MAX(scan_time) AS last_out, COUNT(*) AS scan_count
@@ -59,8 +63,7 @@ async function revertLeaveDates(employeeId, startDate, endDate) {
         const diffMs = new Date(l.last_out) - new Date(l.first_in);
         const totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
         const status = parseInt(l.scan_count) <= 1 ? "present_incomplete"
-          : totalHours >= 9 ? "present"
-          : totalHours >= 1 ? "present_partial" : "present_incomplete";
+          : totalHours >= 1 ? "present" : "present_incomplete";
         await pool.query(
           `INSERT INTO attendance_summary (employee_id, date, first_in, last_out, total_hours, status, is_late, late_minutes)
            VALUES ($1, $2, $3, $4, $5, $6, false, 0)
@@ -76,7 +79,7 @@ async function revertLeaveDates(employeeId, startDate, endDate) {
         );
       }
     }
-    d.setDate(d.getDate() + 1);
+    d.setUTCDate(d.getUTCDate() + 1);
   }
 }
 

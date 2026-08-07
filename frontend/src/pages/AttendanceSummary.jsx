@@ -1,13 +1,37 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, Fragment } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
 import SearchBar from "../components/SearchBar";
 import { formatBioTimeDateValue, formatBioTimeTimeValue } from "../utils/time";
 import { matchesSearch } from "../utils/search";
+
 const statusBadge = (s) => {
-  const map = { present: "green", late: "orange", absent: "red", leave: "purple", field_duty: "teal" };
-  return <span className={`badge badge-${map[s] || "blue"}`}>{(s || "unknown").replace("_", " ")}</span>;
+  if (s === "present_partial") s = "present";
+  const map = {
+    present: "green", late: "orange", absent: "red", leave: "purple", on_leave: "purple",
+    approved: "blue", field_duty: "teal", present_incomplete: "orange",
+  };
+  return <span className={`badge badge-${map[s] || "blue"}`}>{(s || "unknown").replace(/_/g, " ")}</span>;
 };
+
+const CAT_PRESENT = "present";
+const CAT_ABSENT = "absent";
+const CAT_MISSING = "missing_checkout";
+
+const categoryMeta = {
+  [CAT_PRESENT]: { label: "Present", icon: "check-circle", tone: "green", hint: "Checked in during the period" },
+  [CAT_ABSENT]: { label: "Absent", icon: "x", tone: "red", hint: "No clock-in recorded" },
+  [CAT_MISSING]: { label: "Missed Clock-Out", icon: "clock", tone: "orange", hint: "Checked in without checkout" },
+};
+
+function recordCategory(r) {
+  const st = r.status;
+  if (!st) return CAT_ABSENT;
+  if (st === "present_incomplete") return CAT_MISSING;
+  if (r.first_in && !r.last_out) return CAT_MISSING;
+  if (st === "absent") return CAT_ABSENT;
+  return CAT_PRESENT;
+}
 
 const dropdownStyle = {
   position: "absolute", zIndex: 50, top: "100%", left: 0, right: 0, marginTop: 4,
@@ -44,6 +68,19 @@ const fmtPeriod = (mode, start, end) =>
   : mode === "weekly" ? `${fmtDay(start)} \u2013 ${fmtDay(end)}`
   : fmtMonth(end.slice(0, 7));
 
+function fmtAgg(e) {
+  const parts = [];
+  if (e.present) parts.push(`${e.present} present`);
+  if (e.missing_checkout) parts.push(`${e.missing_checkout} missed CO`);
+  if (e.absent) parts.push(`${e.absent} absent`);
+  const extra = [];
+  if (e.leave) extra.push(`${e.leave} leave`);
+  if (e.approved) extra.push(`${e.approved} approved`);
+  let s = parts.join(" \u00b7 ");
+  if (extra.length) s += (s ? "  |  " : "") + extra.join(" \u00b7 ");
+  return s || "\u2014";
+}
+
 export default function AttendanceSummary() {
   const [rows, setRows] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -52,6 +89,8 @@ export default function AttendanceSummary() {
   const [dateTo, setDateTo] = useState(new Date().toISOString().split("T")[0]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [category, setCategory] = useState("");
+  const [expanded, setExpanded] = useState(null);
 
   const [empQuery, setEmpQuery] = useState("");
   const [empResults, setEmpResults] = useState([]);
@@ -99,18 +138,60 @@ export default function AttendanceSummary() {
       .finally(() => setSummaryLoading(false));
   }, [selectedEmployee, periodStart, periodEnd]);
 
-  const filtered = useMemo(() => {
-    if (!query.trim()) return rows;
-    return rows.filter((r) => matchesSearch(r, query, ["full_name", "card_id", "employee_id", "department", "status"]));
-  }, [rows, query]);
+  const overview = useMemo(() => {
+    const empMap = new Map();
+    for (const r of rows) {
+      const id = r.employee_id;
+      if (!empMap.has(id)) {
+        empMap.set(id, {
+          employee_id: id, card_id: r.card_id, full_name: r.full_name, department: r.department,
+          days: [], present: 0, absent: 0, missing_checkout: 0, leave: 0, approved: 0,
+        });
+      }
+      const e = empMap.get(id);
+      const cat = recordCategory(r);
+      e.days.push({ date: r.date, status: r.status, cat, first_in: r.first_in, last_out: r.last_out });
+      e[cat]++;
+      if (r.status === "on_leave" || r.status === "leave") e.leave++;
+      if (r.status === "approved") e.approved++;
+    }
+    const list = [...empMap.values()];
+    for (const e of list) {
+      e.primary = e.missing_checkout > 0 ? CAT_MISSING : e.present > 0 ? CAT_PRESENT : CAT_ABSENT;
+      e.days.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    }
+    list.sort((a, b) => a.full_name.localeCompare(b.full_name));
+    return list;
+  }, [rows]);
+
+  const presentCount = overview.filter((e) => e.primary === CAT_PRESENT).length;
+  const absentCount = overview.filter((e) => e.primary === CAT_ABSENT).length;
+  const missingCount = overview.filter((e) => e.primary === CAT_MISSING).length;
+
+  const categoryList = useMemo(() => {
+    let list = overview;
+    if (category) list = overview.filter((e) => e.primary === category);
+    if (query.trim()) list = list.filter((e) => matchesSearch(e, query, ["full_name", "card_id", "department"]));
+    return list;
+  }, [overview, category, query]);
+
+  const isSingleDay = dateFrom === dateTo;
+  const rangeLabel = isSingleDay
+    ? fmtDay(dateFrom)
+    : `${fmtDay(dateFrom)} \u2013 ${fmtDay(dateTo)}`;
+
+  const openEmployee = (e) => {
+    setSelectedEmployee({ id: e.employee_id, full_name: e.full_name, card_id: e.card_id, department: e.department });
+    document.getElementById("summary-top-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <div className="page-container">
       <div className="page-header page-header-row">
-        <div><p className="eyebrow">Attendance</p><h1>Attendance Summary</h1><p>Summarized daily attendance with first in, last out, and status.</p></div>
+        <div><p className="eyebrow">Attendance</p><h1>Attendance Summary</h1><p>Overview of Present, Absent, and Missed Clock-Out employees. Click a category to view its list.</p></div>
       </div>
 
-      <div className="panel">
+      <div className="panel" id="summary-top-panel">
         <div className="panel-header">
           <div>
             <div className="panel-title">Employee Attendance Summary</div>
@@ -163,7 +244,7 @@ export default function AttendanceSummary() {
                 </div>
                 <div className="day-status-list">
                   {summary.days.map((d) => (
-                    <div key={d.date} className={`day-status-chip status-${d.status}`}>
+                    <div key={d.date} className={`day-status-chip status-${d.status === "missing_checkout" || d.status === "present_incomplete" ? "missing_checkout" : d.status}`}>
                       <span className="day-status-name">{d.day}</span>
                       <span className="day-status-date">{d.date.slice(5)}</span>
                       <span className="day-status-value">{d.status.replace("_", " ")}</span>
@@ -186,9 +267,32 @@ export default function AttendanceSummary() {
         )}
       </div>
 
+      <div className="overview-cards">
+        {Object.keys(categoryMeta).map((cat) => {
+          const meta = categoryMeta[cat];
+          const count = cat === CAT_PRESENT ? presentCount : cat === CAT_ABSENT ? absentCount : missingCount;
+          const active = category === cat;
+          return (
+            <button key={cat} type="button"
+              className={`stat-card ${meta.tone} clickable overview-card${active ? " active" : ""}`}
+              onClick={() => setCategory(active ? "" : cat)}>
+              <div className="stat-icon"><Icon name={meta.icon} size={20} /></div>
+              <div>
+                <p className="stat-label">{meta.label}</p>
+                <p className="stat-count">{count}</p>
+                <p className="stat-hint">{meta.hint}</p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="panel">
         <div className="panel-header">
-          <div><div className="panel-title">Daily Summary</div></div>
+          <div>
+            <div className="panel-title">{category ? `${categoryMeta[category].label} Employees` : "Employee Attendance"}</div>
+            <div className="panel-subtitle">{rangeLabel} | {category ? `${categoryMeta[category].label}: ${category === CAT_PRESENT ? presentCount : category === CAT_ABSENT ? absentCount : missingCount} of ${overview.length} employees` : `All employees (${overview.length})`}</div>
+          </div>
           <div className="panel-actions">
             <select className="form-input form-select-sm" value={dept} onChange={(e) => setDept(e.target.value)}>
               <option value="">All Departments</option>
@@ -201,24 +305,63 @@ export default function AttendanceSummary() {
         </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Employee</th><th>Department</th><th>Date</th><th>First In</th><th>Last Out</th><th>Hours</th><th>Status</th></tr></thead>
+            <thead><tr><th style={{ width: 30 }}></th><th>Employee</th><th>Department</th><th>Attendance</th><th style={{ width: 90 }}></th></tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan="7" className="table-message">Loading...</td></tr>
-              : filtered.length ? filtered.map((r, i) => (
-                <tr key={i}>
-                  <td className="strong-cell">{r.full_name}</td>
-                  <td><span className="badge badge-blue">{r.department || "—"}</span></td>
-                  <td className="td-muted">{r.date ? formatBioTimeDateValue(r.date) : "—"}</td>
-                  <td className="td-muted">{r.first_in ? formatBioTimeTimeValue(r.first_in) : "—"}</td>
-                  <td className="td-muted">{r.last_out ? formatBioTimeTimeValue(r.last_out) : "—"}</td>
-                  <td className="td-muted">{r.total_hours ? `${r.total_hours}h` : "—"}</td>
-                  <td>{statusBadge(r.status)}</td>
-                </tr>
-              )) : <tr><td colSpan="7" className="table-message">No attendance data for this period.</td></tr>}
+              {loading ? <tr><td colSpan="5" className="table-message">Loading...</td></tr>
+              : categoryList.length ? categoryList.map((e) => (
+                <Fragment key={e.employee_id}>
+                  <tr className="clickable-row" onClick={() => setExpanded(expanded === e.employee_id ? null : e.employee_id)}>
+                    <td className="td-center"><Icon name={expanded === e.employee_id ? "chevron-up" : "chevron-down"} size={14} /></td>
+                    <td className="strong-cell">
+                      {e.full_name}
+                      <div className="td-muted">{e.card_id || e.employee_id}</div>
+                    </td>
+                    <td><span className="badge badge-blue">{e.department || "—"}</span></td>
+                    <td>
+                      {isSingleDay ? (
+                        (() => {
+                          const day = e.days.find((d) => d.date);
+                          if (!day) return <span className="td-muted">No record</span>;
+                          const times = [];
+                          if (day.first_in) times.push(formatBioTimeTimeValue(day.first_in));
+                          if (day.last_out) times.push(formatBioTimeTimeValue(day.last_out));
+                          return (
+                            <>
+                              {statusBadge(day.status || "absent")}
+                              {times.length ? <span className="td-muted" style={{ marginLeft: 8 }}>{times.join(" \u2192 ")}</span> : null}
+                            </>
+                          );
+                        })()
+                      ) : (
+                        <span className="td-muted">{fmtAgg(e)}</span>
+                      )}
+                    </td>
+                    <td className="td-center">
+                      <button className="btn btn-ghost btn-sm" onClick={(ev) => { ev.stopPropagation(); openEmployee(e); }}>
+                        <Icon name="eye" size={13} /> Details
+                      </button>
+                    </td>
+                  </tr>
+                  {expanded === e.employee_id && (
+                    <tr>
+                      <td colSpan="5">
+                        <div className="emp-day-chips">
+                          {e.days.filter((d) => d.date).length ? e.days.filter((d) => d.date).map((d) => (
+                            <div key={d.date} className={`day-status-chip status-${d.cat}`}>
+                              <span className="day-status-name">{formatBioTimeDateValue(d.date)}</span>
+                              <span className="day-status-value">{d.status ? d.status.replace(/_/g, " ") : "absent"}</span>
+                            </div>
+                          )) : <span className="td-muted">No attendance records for this period.</span>}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )) : <tr><td colSpan="5" className="table-message">No employees in this category for the selected period.</td></tr>}
             </tbody>
           </table>
         </div>
-        {!loading && <div className="table-footer">Showing {filtered.length} of {rows.length} records</div>}
+        {!loading && <div className="table-footer">Showing {categoryList.length} of {overview.length} employees | Period: {rangeLabel}</div>}
       </div>
     </div>
   );

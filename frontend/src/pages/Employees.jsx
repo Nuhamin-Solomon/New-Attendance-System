@@ -74,7 +74,8 @@ function SearchableSelect({ items, value, onChange, placeholder, searchFields, d
 export default function Employees() {
   const [employees, setEmployees] = useState([]);
   const [query, setQuery] = useState("");
-  const [deptFilter, setDeptFilter] = useState("");
+  const [selectedDepts, setSelectedDepts] = useState([]);
+  const [deptOpen, setDeptOpen] = useState(false);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -137,14 +138,38 @@ export default function Employees() {
     }
   };
 
+  const toggleDept = (dept) => {
+    setSelectedDepts((prev) => (prev.includes(dept) ? prev.filter((d) => d !== dept) : [...prev, dept]));
+  };
+
   const filtered = useMemo(() => {
     return employees.filter((e) => {
       const matchQuery = !query || [e.full_name, e.department, e.card_id, e.position, e.manager_name, e.hr_name]
         .some((v) => String(v || "").toLowerCase().includes(query.toLowerCase()));
-      const matchDept = !deptFilter || e.department === deptFilter;
+      const matchDept = selectedDepts.length === 0 || selectedDepts.includes(e.department);
       return matchQuery && matchDept;
     });
-  }, [employees, query, deptFilter]);
+  }, [employees, query, selectedDepts]);
+
+  const verify = useMemo(() => {
+    const q = query.trim();
+    if (!q) return null;
+    const exact = employees.filter((e) =>
+      String(e.full_name || "").toLowerCase() === q.toLowerCase() ||
+      String(e.card_id || "").toLowerCase() === q.toLowerCase()
+    );
+    if (exact.length === 1) {
+      const emp = exact[0];
+      const deptMismatch = selectedDepts.length > 0 && !selectedDepts.includes(emp.department);
+      return deptMismatch
+        ? { type: "warning", text: `${emp.full_name} found in the directory, but is assigned to ${emp.department || "no department"} \u2014 outside your selected department filter.` }
+        : { type: "success", text: `${emp.full_name} (${emp.card_id || "no card ID"}) \u2014 verified in ${emp.department || "no department assigned"}.` };
+    }
+    if (exact.length > 1) {
+      return { type: "info", text: `${exact.length} employees share that name \u2014 refine the search or check the department checklist.` };
+    }
+    return { type: "error", text: `No employee named "${q}" found in the directory.` };
+  }, [employees, query, selectedDepts]);
 
   return (
     <div className="page-container">
@@ -164,16 +189,49 @@ export default function Employees() {
             <div className="panel-subtitle">Search by name, department, card number, manager, or HR</div>
           </div>
           <div className="panel-actions">
-            <select className="form-input form-select-sm" value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}>
-              <option value="">All Departments</option>
-              {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
+            <div className="dept-checklist-wrap">
+              <button className="btn btn-ghost" onClick={() => setDeptOpen(!deptOpen)}>
+                <Icon name="filter" size={14} />
+                {selectedDepts.length ? `Departments (${selectedDepts.length})` : "All Departments"}
+                <Icon name={deptOpen ? "chevron-up" : "chevron-down"} size={14} />
+              </button>
+              {deptOpen && (
+                <div className="dept-checklist">
+                  <div className="dept-checklist-header">
+                    <span>Filter by department</span>
+                    {selectedDepts.length > 0 && <button onClick={() => setSelectedDepts([])}>Clear all</button>}
+                  </div>
+                  <div className="dept-checklist-scroll">
+                    {departments.length ? departments.map((d) => (
+                      <label key={d} className="dept-checklist-item">
+                        <input
+                          type="checkbox"
+                          checked={selectedDepts.includes(d)}
+                          onChange={() => toggleDept(d)}
+                        />
+                        <span>{d}</span>
+                      </label>
+                    )) : <div className="dept-checklist-empty">No departments available</div>}
+                  </div>
+                  <div className="dept-checklist-footer">
+                    <button className="btn btn-sm btn-primary" onClick={() => setDeptOpen(false)}>Apply</button>
+                  </div>
+                </div>
+              )}
+            </div>
             <label className="search-bar">
               <Icon name="search" size={16} />
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search employees" />
             </label>
           </div>
         </div>
+
+        {verify && (
+          <div className={`alert alert-${verify.type}`} style={{ margin: "0 16px 16px" }}>
+            <Icon name={verify.type === "success" ? "check-circle" : verify.type === "error" ? "x" : verify.type === "warning" ? "bell" : "search"} size={14} style={{ marginRight: 8, verticalAlign: "-2px" }} />
+            {verify.text}
+          </div>
+        )}
 
         <div className="table-wrap">
           <table>

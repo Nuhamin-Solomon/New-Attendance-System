@@ -19,6 +19,24 @@ export default function Settings() {
 
   const update = (key, value) => setSettings((prev) => ({ ...prev, [key]: value }));
 
+  const workingDaySet = new Set(String(settings.working_days || "1,2,3,4,5").split(",").map((s) => parseInt(s, 10)).filter((n) => Number.isInteger(n)));
+
+  const toggleWorkingDay = (dow) => {
+    const next = new Set(workingDaySet);
+    if (next.has(dow)) next.delete(dow); else next.add(dow);
+    update("working_days", [...next].sort((a, b) => a - b).join(","));
+  };
+
+  const DAY_LABELS = [
+    { dow: 0, label: "Sun" },
+    { dow: 1, label: "Mon" },
+    { dow: 2, label: "Tue" },
+    { dow: 3, label: "Wed" },
+    { dow: 4, label: "Thu" },
+    { dow: 5, label: "Fri" },
+    { dow: 6, label: "Sat" },
+  ];
+
   const handleSave = async () => {
     setSaving(true);
     setMsg("");
@@ -74,8 +92,24 @@ export default function Settings() {
               <div className="form-group"><label className="form-label">Working Hours End</label><input className="form-input" type="time" value={settings.working_hours_end || ""} onChange={(e) => update("working_hours_end", e.target.value)} /></div>
             </div>
             <div className="form-row">
-              <div className="form-group"><label className="form-label">Late Threshold (minutes)</label><input className="form-input" type="number" value={settings.late_threshold_minutes || ""} onChange={(e) => update("late_threshold_minutes", e.target.value)} /></div>
+              <div className="form-group"><label className="form-label">Standard Working Hours / Day</label><input className="form-input" type="number" min="1" max="24" step="0.5" value={settings.standard_working_hours || ""} onChange={(e) => update("standard_working_hours", e.target.value)} /></div>
               <div className="form-group"><label className="form-label">Overtime Threshold (hours)</label><input className="form-input" type="number" value={settings.overtime_threshold_hours || ""} onChange={(e) => update("overtime_threshold_hours", e.target.value)} /></div>
+            </div>
+            <div className="form-row">
+              <div className="form-group"><label className="form-label">Late Threshold (minutes)</label><input className="form-input" type="number" value={settings.late_threshold_minutes || ""} onChange={(e) => update("late_threshold_minutes", e.target.value)} /></div>
+              <div className="form-group" />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Working Days</label>
+              <div className="working-days-grid">
+                {DAY_LABELS.map((d) => (
+                  <label key={d.dow} className={`wd-day-chip${workingDaySet.has(d.dow) ? " selected" : ""}`}>
+                    <input type="checkbox" checked={workingDaySet.has(d.dow)} onChange={() => toggleWorkingDay(d.dow)} />
+                    <span>{d.label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="form-hint">Days selected here are counted as working days in attendance summaries, late/absence reports, and leave day calculations. Official days are Mon–Fri.</p>
             </div>
           </div>
         </div>

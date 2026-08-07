@@ -6,6 +6,7 @@ import { formatBioTimeDateValue, formatBioTimeTimeValue } from "../utils/time";
 import { matchesSearch } from "../utils/search";
 
 const statusBadge = (s) => {
+  if (s === "present_partial") s = "present";
   const map = { present: "green", late: "orange", absent: "red", leave: "purple", field_duty: "teal", approved: "green", present_incomplete: "orange" };
   return <span className={`badge badge-${map[s] || "blue"}`}>{(s || "no data").replace(/_/g, " ")}</span>;
 };

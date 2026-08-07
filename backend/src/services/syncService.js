@@ -58,8 +58,6 @@ const syncAttendance = async () => {
   return inserted;
 };
 
-const REQUIRED_WORKING_HOURS = 9;
-
 const computeAttendanceSummary = async () => {
   const result = await pool.query(`
     SELECT
@@ -97,10 +95,8 @@ const computeAttendanceSummary = async () => {
     let status;
     if (missingCheckout) {
       status = "present_incomplete";
-    } else if (totalHours >= REQUIRED_WORKING_HOURS) {
-      status = "present";
     } else if (totalHours >= 1) {
-      status = "present_partial";
+      status = "present";
     } else {
       status = "present_incomplete";
     }

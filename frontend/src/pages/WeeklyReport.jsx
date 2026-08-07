@@ -3,7 +3,6 @@ import API from "../services/api";
 import Icon from "../components/Icon";
 import ReportHeader from "../components/ReportHeader";
 import SearchBar from "../components/SearchBar";
-import { formatBioTimeTimeValue } from "../utils/time";
 import { matchesSearch } from "../utils/search";
 
 function getWeekStart(dateStr) {
@@ -79,7 +78,8 @@ export default function WeeklyReport() {
           let inTime = day?.check_in || "";
           let outTime = day?.check_out || "";
           let hrs = day?.total_hours ? parseFloat(day.total_hours).toFixed(1) : "";
-          if (day?.missing_checkout) outTime = "Missing CO";
+          if (day?.absent) { inTime = "Absent"; outTime = ""; hrs = ""; }
+          if (day?.missing_checkout) outTime = "Missed Clock-Out";
           if (day?.approved) { inTime = day.approved_type || "Approved"; outTime = ""; hrs = ""; }
           row.push(inTime, outTime, hrs);
         });
@@ -170,10 +170,11 @@ export default function WeeklyReport() {
                       const day = emp.days[d.key];
                       if (!day) return <Fragment key={`${d.key}-empty`}><td className="td-center"></td><td className="td-center"></td><td className="td-center"></td></Fragment>;
                       if (day.approved) return <Fragment key={`${d.key}-app`}><td className="td-center td-approved" colSpan={3}>{day.approved_type || "Approved"}</td></Fragment>;
+                      if (day.absent) return <Fragment key={`${d.key}-abs`}><td className="td-center td-absent" colSpan={3}>Absent</td></Fragment>;
                       return (
                         <Fragment key={d.key}>
-                          <td className="td-center">{formatBioTimeTimeValue(day.check_in) || "\u2014"}</td>
-                          <td className={`td-center${day.missing_checkout ? " td-warning" : ""}`}>{day.missing_checkout ? "MCO" : (formatBioTimeTimeValue(day.check_out) || "\u2014")}</td>
+                          <td className="td-center">{day.check_in || "\u2014"}</td>
+                          <td className={`td-center${day.missing_checkout ? " td-warning" : ""}`}>{day.missing_checkout ? <span className="td-mco">Missed Clock-Out</span> : (day.check_out || "\u2014")}</td>
                           <td className="td-center td-muted">{day.total_hours ? `${parseFloat(day.total_hours).toFixed(1)}` : "\u2014"}</td>
                         </Fragment>
                       );

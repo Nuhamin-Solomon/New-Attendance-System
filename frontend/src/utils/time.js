@@ -20,7 +20,7 @@ function parseBioTimeParts(value) {
   if (!trimmed) return null;
 
   const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
-  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?)?(?:Z|[+-]\d{2}:?\d{2})?$/);
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?(?:Z|[+-]\d{2}:?\d{2})?$/);
   if (!match) return null;
 
   return {
@@ -34,11 +34,6 @@ function parseBioTimeParts(value) {
 }
 
 export function formatBioTimeTimeValue(value) {
-  if (typeof value === 'string') {
-    const bare = value.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{1,2}))?$/);
-    if (bare) return `${String(bare[1]).padStart(2, '0')}:${bare[2]}`;
-  }
-
   const parts = parseBioTimeParts(value);
   if (!parts || parts.hour === null || parts.minute === null) return '';
 

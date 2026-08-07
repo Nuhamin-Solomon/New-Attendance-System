@@ -34,8 +34,7 @@ async function revertAttendanceSummary(employeeId, date) {
     const diffMs = new Date(l.last_out) - new Date(l.first_in);
     const totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
     const status = parseInt(l.scan_count) <= 1 ? "present_incomplete"
-      : totalHours >= 9 ? "present"
-      : totalHours >= 1 ? "present_partial" : "present_incomplete";
+      : totalHours >= 1 ? "present" : "present_incomplete";
     await pool.query(
       `INSERT INTO attendance_summary (employee_id, date, first_in, last_out, total_hours, status, is_late, late_minutes)
        VALUES ($1, $2, $3, $4, $5, $6, false, 0)

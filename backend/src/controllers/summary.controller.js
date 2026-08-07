@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const { getDepartmentFilter } = require("../utils/departmentFilter");
 const { computeTotalHours } = require("../services/attendanceTime");
+const { workingDayKeys: getWorkingDayKeys, getWorkingDays } = require("../services/workingDays");
 
 function dateKey(value) {
   if (value instanceof Date) {
@@ -18,6 +19,7 @@ exports.list = async (req, res) => {
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi", year: "numeric", month: "2-digit", day: "2-digit" });
     const start = start_date || today;
     const end = end_date || today;
+    const workingDays = await getWorkingDays();
 
     let query = `
       SELECT
@@ -25,11 +27,11 @@ exports.list = async (req, res) => {
         asci.date, asci.first_in, asci.last_out,
         asci.total_hours, asci.status, asci.is_late, asci.late_minutes
       FROM employees e
-      LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date BETWEEN $1 AND $2
+      LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date BETWEEN $1 AND $2 AND EXTRACT(DOW FROM asci.date) = ANY($3::int[])
       WHERE e.status = 'active'
     `;
-    const params = [start, end];
-    let idx = 3;
+    const params = [start, end, workingDays];
+    let idx = 4;
 
     const deptFilter = getDepartmentFilter(req.user, idx);
     if (deptFilter.clause) {
@@ -77,12 +79,14 @@ exports.myAttendance = async (req, res) => {
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi", year: "numeric", month: "2-digit", day: "2-digit" });
     const start = start_date || new Date(Date.now() - 30 * 86400000).toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi", year: "numeric", month: "2-digit", day: "2-digit" });
     const end = end_date || today;
+    const workingDays = await getWorkingDays();
 
     const result = await pool.query(
       `SELECT * FROM attendance_summary
        WHERE employee_id = $1 AND date BETWEEN $2 AND $3
+         AND EXTRACT(DOW FROM date) = ANY($4::int[])
        ORDER BY date DESC`,
-      [employeeId, start, end]
+      [employeeId, start, end, workingDays]
     );
 
     res.json(result.rows);
@@ -166,18 +170,7 @@ exports.searchEmployees = async (req, res) => {
 };
 
 async function computeEmployeeSummary(employee, startKey, endKey) {
-  const [y1, m1, d1] = startKey.split("-").map(Number);
-  const [y2, m2, d2] = endKey.split("-").map(Number);
-  const startDate = new Date(Date.UTC(y1, m1 - 1, d1));
-  const endDate = new Date(Date.UTC(y2, m2 - 1, d2));
-
-  const workingDayKeys = [];
-  const cursor = new Date(startDate);
-  while (cursor <= endDate) {
-    const dow = cursor.getUTCDay();
-    if (dow !== 0 && dow !== 6) workingDayKeys.push(dateKey(cursor));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
+  const workingDayKeys = await getWorkingDayKeys(startKey, endKey);
   const totalWorkingDays = workingDayKeys.length;
 
   const [logsResult, approvedResult, leaveResult] = await Promise.all([

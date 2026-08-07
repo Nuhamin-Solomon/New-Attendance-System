@@ -3,7 +3,6 @@ import API from "../../services/api";
 import Icon from "../../components/Icon";
 import ReportHeader from "../../components/ReportHeader";
 import SearchBar from "../../components/SearchBar";
-import { formatBioTimeTimeValue } from "../../utils/time";
 import { matchesSearch } from "../../utils/search";
 
 export default function DepartmentReport() {
@@ -87,7 +86,8 @@ export default function DepartmentReport() {
           let inTime = rec?.check_in || "";
           let outTime = rec?.check_out || "";
           let hrs = rec?.total_hours ? parseFloat(rec.total_hours).toFixed(1) : "";
-          if (rec?.missing_checkout) outTime = "Missing CO";
+          if (rec?.absent) { inTime = "Absent"; outTime = ""; hrs = ""; }
+          if (rec?.missing_checkout) outTime = "Missed Clock-Out";
           if (rec?.approved) { inTime = rec.approved_type || "Approved"; outTime = ""; hrs = ""; }
           row.push(inTime, outTime, hrs);
         });
@@ -183,10 +183,11 @@ export default function DepartmentReport() {
                             const rec = recMap[d.key];
                             if (!rec) return <Fragment key={d.key}><td className="td-center"></td><td className="td-center"></td><td className="td-center"></td></Fragment>;
                             if (rec.approved) return <Fragment key={d.key}><td className="td-center td-approved" colSpan={3}>{rec.approved_type || "Approved"}</td></Fragment>;
+                            if (rec.absent) return <Fragment key={d.key}><td className="td-center td-absent" colSpan={3}>Absent</td></Fragment>;
                             return (
                               <Fragment key={d.key}>
-                                <td className="td-center">{formatBioTimeTimeValue(rec.check_in) || "\u2014"}</td>
-                                <td className={`td-center${rec.missing_checkout ? " td-warning" : ""}`}>{rec.missing_checkout ? "MCO" : (formatBioTimeTimeValue(rec.check_out) || "\u2014")}</td>
+                                <td className="td-center">{rec.check_in || "\u2014"}</td>
+                                <td className={`td-center${rec.missing_checkout ? " td-warning" : ""}`}>{rec.missing_checkout ? <span className="td-mco">Missed Clock-Out</span> : (rec.check_out || "\u2014")}</td>
                                 <td className="td-center td-muted">{rec.total_hours ? parseFloat(rec.total_hours).toFixed(1) : "\u2014"}</td>
                               </Fragment>
                             );
