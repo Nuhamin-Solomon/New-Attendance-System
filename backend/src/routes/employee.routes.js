@@ -17,12 +17,27 @@ const EMP_LIST_JOINS = `
 
 router.get("/", authenticate, async (req, res) => {
   try {
-    const { department, search } = req.query;
+    const { department, search, status } = req.query;
     let query = `SELECT ${EMP_LIST_SELECT} FROM employees e ${EMP_LIST_JOINS}`;
     const params = [];
     const conditions = [];
 
+    if (req.user.role !== "admin") {
+      const deptNames = (req.user.assigned_departments || []).map((d) => d.department_name);
+      if (deptNames.length > 0) {
+        conditions.push(`e.department = ANY($${params.length + 1})`);
+        params.push(deptNames);
+      } else if (req.user.role === "employee" && req.user.employee_id) {
+        conditions.push(`e.id = $${params.length + 1}`);
+        params.push(req.user.employee_id);
+      } else {
+        conditions.push(`e.id = $${params.length + 1}`);
+        params.push(-1);
+      }
+    }
+
     if (department) { conditions.push(`e.department = $${params.length + 1}`); params.push(department); }
+    if (status) { conditions.push(`e.status = $${params.length + 1}`); params.push(status); }
     if (search) { conditions.push(`(e.full_name ILIKE $${params.length + 1} OR e.card_id ILIKE $${params.length + 1})`); params.push(`%${search}%`); }
 
     if (conditions.length > 0) query += " WHERE " + conditions.join(" AND ");
@@ -38,7 +53,16 @@ router.get("/", authenticate, async (req, res) => {
 
 router.get("/departments", authenticate, async (req, res) => {
   try {
-    const result = await pool.query("SELECT DISTINCT department FROM employees WHERE department IS NOT NULL ORDER BY department");
+    let query = "SELECT DISTINCT department FROM employees WHERE department IS NOT NULL";
+    const params = [];
+    if (req.user.role !== "admin") {
+      const deptNames = (req.user.assigned_departments || []).map((d) => d.department_name);
+      if (deptNames.length === 0) return res.json([]);
+      query += " AND department = ANY($" + (params.length + 1) + ")";
+      params.push(deptNames);
+    }
+    query += " ORDER BY department";
+    const result = await pool.query(query, params);
     res.json(result.rows.map((r) => r.department));
   } catch (error) {
     res.status(500).json({ error: error.message });

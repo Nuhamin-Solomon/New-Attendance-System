@@ -2,8 +2,10 @@ import { useEffect, useState, useMemo, Fragment } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
 import SearchBar from "../components/SearchBar";
+import DepartmentFilter from "../components/DepartmentFilter";
 import { formatBioTimeDateValue, formatBioTimeTimeValue } from "../utils/time";
 import { matchesSearch } from "../utils/search";
+import { buildReportParams, activeFilterLabel } from "../utils/reportFilters";
 
 const statusBadge = (s) => {
   if (s === "present_partial") s = "present";
@@ -83,8 +85,7 @@ function fmtAgg(e) {
 
 export default function AttendanceSummary() {
   const [rows, setRows] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [dept, setDept] = useState("");
+  const [filterDepts, setFilterDepts] = useState([]);
   const [dateFrom, setDateFrom] = useState(new Date().toISOString().split("T")[0]);
   const [dateTo, setDateTo] = useState(new Date().toISOString().split("T")[0]);
   const [query, setQuery] = useState("");
@@ -101,14 +102,15 @@ export default function AttendanceSummary() {
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
-  useEffect(() => { API.get("/employees/departments").then((r) => setDepartments(r.data)).catch(() => {}); }, []);
-
   useEffect(() => {
     setLoading(true);
-    const params = { start_date: dateFrom, end_date: dateTo };
-    if (dept) params.department = dept;
+    const params = buildReportParams({ start_date: dateFrom, end_date: dateTo }, { departments: filterDepts });
     API.get("/summary", { params }).then((r) => setRows(r.data)).catch(() => {}).finally(() => setLoading(false));
-  }, [dept, dateFrom, dateTo]);
+  }, [filterDepts, dateFrom, dateTo]);
+
+  const handleApplyDepartments = (departments) => {
+    setFilterDepts(departments);
+  };
 
   useEffect(() => {
     const q = empQuery.trim();
@@ -294,10 +296,10 @@ export default function AttendanceSummary() {
             <div className="panel-subtitle">{rangeLabel} | {category ? `${categoryMeta[category].label}: ${category === CAT_PRESENT ? presentCount : category === CAT_ABSENT ? absentCount : missingCount} of ${overview.length} employees` : `All employees (${overview.length})`}</div>
           </div>
           <div className="panel-actions">
-            <select className="form-input form-select-sm" value={dept} onChange={(e) => setDept(e.target.value)}>
-              <option value="">All Departments</option>
-              {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
+            <DepartmentFilter selectedDepartments={filterDepts} onApply={handleApplyDepartments} />
+            {filterDepts.length > 0 && (
+              <span className="badge badge-teal">{activeFilterLabel(filterDepts, [])}</span>
+            )}
             <input type="date" className="form-input form-input-sm" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
             <input type="date" className="form-input form-input-sm" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
             <SearchBar value={query} onChange={setQuery} />

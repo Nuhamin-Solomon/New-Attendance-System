@@ -3,7 +3,9 @@ import API from "../services/api";
 import Icon from "../components/Icon";
 import ReportHeader from "../components/ReportHeader";
 import SearchBar from "../components/SearchBar";
+import DepartmentFilter from "../components/DepartmentFilter";
 import { formatBioTimeDateValue } from "../utils/time";
+import { buildReportParams, activeFilterLabel } from "../utils/reportFilters";
 
 function getMonthStart() {
   const d = new Date();
@@ -32,8 +34,7 @@ function periodLabel(start, end) {
 
 export default function MonthlySummary() {
   const [data, setData] = useState(null);
-  const [departments, setDepartments] = useState([]);
-  const [department, setDepartment] = useState("");
+  const [filterDepts, setFilterDepts] = useState([]);
   const [startDate, setStartDate] = useState(getMonthStart);
   const [endDate, setEndDate] = useState(getMonthEnd);
   const [status, setStatus] = useState("all");
@@ -50,19 +51,18 @@ export default function MonthlySummary() {
   };
 
   useEffect(() => {
-    API.get("/reports/department").then((r) => setDepartments(r.data.departments || [])).catch(() => {});
-  }, []);
-
-  useEffect(() => {
     setLoading(true);
-    const params = { start_date: startDate, end_date: endDate, status };
-    if (department) params.department = department;
+    const params = buildReportParams({ start_date: startDate, end_date: endDate, status }, { departments: filterDepts });
     if (query.trim()) params.search = query.trim();
     API.get("/reports/summary-monthly", { params })
       .then((r) => setData(r.data))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [startDate, endDate, department, status, query]);
+  }, [startDate, endDate, filterDepts, status, query]);
+
+  const handleApplyDepartments = (departments) => {
+    setFilterDepts(departments);
+  };
 
   const employees = data?.employees || [];
   const workingDays = data?.working_days || 0;
@@ -147,7 +147,7 @@ export default function MonthlySummary() {
       <ReportHeader
         title="Monthly Attendance Summary"
         subtitle={`Reporting Period: ${startDate} to ${endDate}`}
-        dateRange={department ? `Department: ${department}` : "All Departments"}
+        dateRange={activeFilterLabel(filterDepts, []) || "All Employees & Departments"}
       >
         <button className="btn btn-ghost no-print" onClick={() => window.print()}><Icon name="eye" size={14} /> Print</button>
         <button className="btn btn-primary no-print" onClick={handleExport}><Icon name="download" size={14} /> Export Excel</button>
@@ -158,10 +158,7 @@ export default function MonthlySummary() {
         <input type="date" className="form-input form-input-sm" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         <label className="form-label" style={{ margin: 0 }}>End Date</label>
         <input type="date" className="form-input form-input-sm" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-        <select className="form-input form-input-sm form-select-sm" value={department} onChange={(e) => setDepartment(e.target.value)}>
-          <option value="">All Departments</option>
-          {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
+        <DepartmentFilter selectedDepartments={filterDepts} onApply={handleApplyDepartments} />
         <select className="form-input form-input-sm form-select-sm" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="all">All Statuses</option>
           <option value="present">Present (No Absence)</option>
@@ -271,6 +268,7 @@ export default function MonthlySummary() {
           </div>
         )}
       </div>
+
     </div>
   );
 }

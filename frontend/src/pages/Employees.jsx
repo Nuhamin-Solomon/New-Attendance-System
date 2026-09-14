@@ -77,6 +77,7 @@ export default function Employees() {
   const [selectedDepts, setSelectedDepts] = useState([]);
   const [deptOpen, setDeptOpen] = useState(false);
   const [departments, setDepartments] = useState([]);
+  const [statusFilter, setStatusFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -147,9 +148,10 @@ export default function Employees() {
       const matchQuery = !query || [e.full_name, e.department, e.card_id, e.position, e.manager_name, e.hr_name]
         .some((v) => String(v || "").toLowerCase().includes(query.toLowerCase()));
       const matchDept = selectedDepts.length === 0 || selectedDepts.includes(e.department);
-      return matchQuery && matchDept;
+      const matchStatus = statusFilter === "all" || e.status === statusFilter;
+      return matchQuery && matchDept && matchStatus;
     });
-  }, [employees, query, selectedDepts]);
+  }, [employees, query, selectedDepts, statusFilter]);
 
   const verify = useMemo(() => {
     const q = query.trim();
@@ -219,6 +221,16 @@ export default function Employees() {
                 </div>
               )}
             </div>
+            <select
+              className="form-input form-input-sm form-select-sm"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              title="Filter by employment status"
+            >
+              <option value="all">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
             <label className="search-bar">
               <Icon name="search" size={16} />
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search employees" />

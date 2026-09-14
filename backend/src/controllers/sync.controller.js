@@ -2,8 +2,13 @@ const { syncEmployees, syncAttendance, computeAttendanceSummary, fullSync } = re
 
 exports.employees = async (req, res) => {
   try {
-    await syncEmployees();
-    res.json({ success: true, message: "Employees synchronized" });
+    const result = await syncEmployees();
+    res.json({
+      success: true,
+      message: `Employees synchronized (${result.synced} synced, ${result.deactivated} deactivated against BioTime)`,
+      synced: result.synced,
+      deactivated: result.deactivated,
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

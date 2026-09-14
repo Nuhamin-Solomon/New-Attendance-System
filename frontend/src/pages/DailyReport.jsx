@@ -3,8 +3,9 @@ import API from "../services/api";
 import Icon from "../components/Icon";
 import ReportHeader from "../components/ReportHeader";
 import SearchBar from "../components/SearchBar";
-import { formatBioTimeTimeValue } from "../utils/time";
+import DepartmentFilter from "../components/DepartmentFilter";
 import { matchesSearch } from "../utils/search";
+import { buildReportParams, activeFilterLabel } from "../utils/reportFilters";
 
 function getLastWorkingDay() {
   const d = new Date();
@@ -19,19 +20,22 @@ function getLastWorkingDay() {
 export default function DailyReport() {
   const [data, setData] = useState(null);
   const [date, setDate] = useState(getLastWorkingDay);
-  const [department, setDepartment] = useState("");
+  const [filterDepts, setFilterDepts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
     setLoading(true);
-    const params = { date };
-    if (department) params.department = department;
+    const params = buildReportParams({ date }, { departments: filterDepts });
     API.get("/reports/daily", { params })
       .then((r) => setData(r.data))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [date, department]);
+  }, [date, filterDepts]);
+
+  const handleApplyDepartments = (departments) => {
+    setFilterDepts(departments);
+  };
 
   const handleExport = async () => {
     if (!data) return;
@@ -59,8 +63,8 @@ export default function DailyReport() {
           emp.card_id || emp.employee_id,
           emp.full_name,
           emp.department || "",
-          formatBioTimeTimeValue(emp.check_in) || "",
-          formatBioTimeTimeValue(emp.check_out) || "",
+          emp.check_in || "",
+          emp.check_out || "",
           emp.total_hours || "",
           remarks,
         ]);
@@ -96,7 +100,7 @@ export default function DailyReport() {
       <ReportHeader
         title="Daily Attendance Report"
         subtitle={`Reporting Period: ${date}`}
-        dateRange={department ? `Department: ${department}` : "All Departments"}
+        dateRange={activeFilterLabel(filterDepts, []) || "All Employees & Departments"}
       >
         <button className="btn btn-ghost no-print" onClick={handlePrint}><Icon name="eye" size={14} /> Print</button>
         <button className="btn btn-primary no-print" onClick={handleExport}><Icon name="download" size={14} /> Export Excel</button>
@@ -105,10 +109,7 @@ export default function DailyReport() {
       <div className="panel-actions-row no-print">
         <label className="form-label" style={{ margin: 0 }}>Date</label>
         <input type="date" className="form-input form-input-sm" value={date} onChange={(e) => setDate(e.target.value)} />
-        <select className="form-input form-input-sm form-select-sm" value={department} onChange={(e) => setDepartment(e.target.value)}>
-          <option value="">All Departments</option>
-          {(data?.departments_list || []).map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
+        <DepartmentFilter selectedDepartments={filterDepts} onApply={handleApplyDepartments} />
         <SearchBar value={query} onChange={setQuery} />
       </div>
 
@@ -143,8 +144,8 @@ export default function DailyReport() {
                       <td className="td-center">{emp.card_id || emp.employee_id}</td>
                       <td className="strong-cell">{emp.full_name}</td>
                       <td><span className="badge badge-blue">{emp.department || "\u2014"}</span></td>
-                      <td className="td-center">{formatBioTimeTimeValue(emp.check_in) || "\u2014"}</td>
-                      <td className="td-center">{formatBioTimeTimeValue(emp.check_out) || "\u2014"}</td>
+                      <td className="td-center">{emp.check_in || "\u2014"}</td>
+                      <td className="td-center">{emp.check_out || "\u2014"}</td>
                       <td className="td-center">{emp.total_hours ? `${emp.total_hours}h` : "\u2014"}</td>
                       <td className="td-center">
                         {emp.missing_checkout && <span className="badge badge-orange">Missing Check-Out</span>}

@@ -3,12 +3,15 @@ import API from "../../services/api";
 import Icon from "../../components/Icon";
 import ReportHeader from "../../components/ReportHeader";
 import SearchBar from "../../components/SearchBar";
+import EmployeeFilter from "../../components/EmployeeFilter";
 import { matchesSearch } from "../../utils/search";
+import { buildReportParams, activeFilterLabel } from "../../utils/reportFilters";
 
 export default function DepartmentReport() {
   const [data, setData] = useState(null);
-  const [departments, setDepartments] = useState([]);
-  const [selectedDept, setSelectedDept] = useState("");
+  const [filterDepts, setFilterDepts] = useState([]);
+  const [filterEmpIds, setFilterEmpIds] = useState([]);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [startDate, setStartDate] = useState(() => {
     const d = new Date(); d.setDate(1);
     return d.toISOString().split("T")[0];
@@ -17,18 +20,23 @@ export default function DepartmentReport() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
 
-  useEffect(() => {
-    API.get("/reports/department").then((r) => setDepartments(r.data.departments || [])).catch(() => {});
-  }, []);
+  const hasFilter = filterDepts.length > 0 || filterEmpIds.length > 0;
 
   useEffect(() => {
-    if (!selectedDept) { setLoading(false); setData(null); return; }
+    if (!hasFilter) { setLoading(false); setData(null); return; }
     setLoading(true);
-    API.get("/reports/department", { params: { department: selectedDept, start_date: startDate, end_date: endDate } })
+    const params = buildReportParams({ start_date: startDate, end_date: endDate }, { departments: filterDepts, employeeIds: filterEmpIds });
+    API.get("/reports/department", { params })
       .then((r) => setData(r.data))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [selectedDept, startDate, endDate]);
+  }, [filterDepts, filterEmpIds, startDate, endDate]);
+
+  const handleApplyFilter = ({ departments, employeeIds }) => {
+    setFilterDepts(departments);
+    setFilterEmpIds(employeeIds);
+    setFilterOpen(false);
+  };
 
   const days = [];
   if (data?.employees?.length) {
@@ -69,7 +77,7 @@ export default function DepartmentReport() {
       const rows = [
         ["Kifiya Financial Technology plc"],
         ["Department Attendance Report"],
-        [`Department: ${data.department}`],
+        [`Department: ${activeFilterLabel(filterDepts, filterEmpIds)}`],
         [`Period: ${data.start} to ${data.end}`],
         [`Employees: ${empCount} | Attendance Rate: ${attRate}% | Avg Hours: ${avgHours.toFixed(1)}h`],
         [`Generated: ${new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })} | By: System`],
@@ -105,22 +113,24 @@ export default function DepartmentReport() {
       ws["!props"] = [{ orientation: "landscape" }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Department Report");
-      XLSX.writeFile(wb, `department-report-${data.department.replace(/\s+/g, "-")}-${startDate}-to-${endDate}.xlsx`);
+      XLSX.writeFile(wb, `department-report-${activeFilterLabel(filterDepts, filterEmpIds).replace(/\s+/g, "-")}-${startDate}-to-${endDate}.xlsx`);
     } catch (e) { alert("Export failed: " + e.message); }
   };
 
   return (
     <div className="page-container">
-      <ReportHeader title="Department Attendance Report" subtitle={selectedDept ? `${data?.department || ""}` : "Select a Department"} dateRange={selectedDept ? `Period: ${startDate} to ${endDate}` : ""}>
-        {selectedDept && <button className="btn btn-ghost no-print" onClick={() => window.print()}><Icon name="eye" size={14} /> Print</button>}
-        {selectedDept && <button className="btn btn-primary no-print" onClick={handleExport}><Icon name="download" size={14} /> Export Excel</button>}
+      <ReportHeader title="Department Attendance Report" subtitle={hasFilter ? activeFilterLabel(filterDepts, filterEmpIds) : "Filter to view report"} dateRange={hasFilter ? `Period: ${startDate} to ${endDate}` : ""}>
+        {hasFilter && data && <button className="btn btn-ghost no-print" onClick={() => window.print()}><Icon name="eye" size={14} /> Print</button>}
+        {hasFilter && data && <button className="btn btn-primary no-print" onClick={handleExport}><Icon name="download" size={14} /> Export Excel</button>}
       </ReportHeader>
 
       <div className="panel-actions-row no-print">
-        <select className="form-input form-input-sm form-select-sm" value={selectedDept} onChange={(e) => setSelectedDept(e.target.value)}>
-          <option value="">Select Department</option>
-          {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
+        <button className="btn btn-ghost btn-sm" onClick={() => setFilterOpen(true)}>
+          <Icon name="filter" size={14} /> Filter
+        </button>
+        {hasFilter && (
+          <span className="badge badge-teal">{activeFilterLabel(filterDepts, filterEmpIds)}</span>
+        )}
         <label className="form-label" style={{ margin: 0 }}>From</label>
         <input type="date" className="form-input form-input-sm" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         <label className="form-label" style={{ margin: 0 }}>To</label>
@@ -128,7 +138,7 @@ export default function DepartmentReport() {
         <SearchBar value={query} onChange={setQuery} />
       </div>
 
-      {selectedDept && (
+      {hasFilter && data && (
         <>
           <div className="stats-grid stats-grid-6 no-print">
             <div className="stat-card blue"><div className="stat-icon"><Icon name="users" size={18} /></div><div><p className="stat-label">Employees</p><p className="stat-value">{empCount}</p></div></div>
@@ -209,14 +219,22 @@ export default function DepartmentReport() {
         </>
       )}
 
-      {!selectedDept && (
+      {!hasFilter && (
         <div className="panel">
           <div className="panel-body" style={{ textAlign: "center", padding: "60px 20px" }}>
             <Icon name="building" size={40} />
-            <p style={{ marginTop: 16, color: "var(--text-muted)" }}>Select a department to view the attendance report</p>
+            <p style={{ marginTop: 16, color: "var(--text-muted)" }}>Click <strong>Filter</strong> to choose one or more departments and employees for this report</p>
           </div>
         </div>
       )}
+
+      <EmployeeFilter
+        open={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        onApply={handleApplyFilter}
+        selectedDepartments={filterDepts}
+        selectedEmployeeIds={filterEmpIds}
+      />
     </div>
   );
 }

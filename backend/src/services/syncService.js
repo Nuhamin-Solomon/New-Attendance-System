@@ -1,26 +1,84 @@
 const pool = require("../config/db");
 const { getEmployees, getAttendance } = require("./biotime.service");
 
+let schemaReady = null;
+
+/**
+ * Ensures the employees table has a `source` column so the sync can distinguish
+ * BioTime-sourced employees (eligible for auto-deactivation) from employees that
+ * were imported or created manually. Idempotent and safe to rerun.
+ */
+function ensureSyncSchema() {
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      await pool.query(
+        `ALTER TABLE employees ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'manual'`
+      );
+      await pool.query(
+        `UPDATE employees SET source = 'biotime' WHERE source = 'manual' AND card_id IS NOT NULL`
+      );
+      await pool.query(
+        `CREATE INDEX IF NOT EXISTS idx_employees_source_status ON employees(source, status)`
+      );
+    })().catch((err) => {
+      schemaReady = null;
+      console.error("Failed to ensure sync schema:", err.message);
+    });
+  }
+  return schemaReady;
+}
+
 const syncEmployees = async () => {
   const response = await getEmployees();
   const employees = response.data;
-  if (!employees || !Array.isArray(employees)) {
-    throw new Error("Invalid employee response from BioTime");
+  if (!employees || !Array.isArray(employees) || employees.length === 0) {
+    throw new Error("Invalid or empty employee response from BioTime; sync aborted to avoid mass deactivation");
   }
 
+  await ensureSyncSchema();
+
   let synced = 0;
+  const seenCardIds = [];
   for (const emp of employees) {
+    const cardId = String(emp.emp_code || "").trim();
+    if (!cardId) continue;
+    seenCardIds.push(cardId);
     await pool.query(
-      `INSERT INTO employees (full_name, card_id, department)
-       VALUES($1, $2, $3)
+      `INSERT INTO employees (full_name, card_id, department, source, status)
+       VALUES($1, $2, $3, 'biotime', 'active')
        ON CONFLICT(card_id)
-       DO UPDATE SET full_name = EXCLUDED.full_name, department = EXCLUDED.department`,
-      [`${emp.first_name} ${emp.last_name}`.trim(), emp.emp_code, emp.department || "Unknown"]
+       DO UPDATE SET
+         full_name = EXCLUDED.full_name,
+         department = EXCLUDED.department,
+         source = 'biotime',
+         status = 'active',
+         updated_at = NOW()`,
+      [`${emp.first_name} ${emp.last_name}`.trim(), cardId, emp.department || "Unknown"]
     );
     synced++;
   }
-  console.log(`Employees synced: ${synced}`);
-  return synced;
+
+  // Deactivate employees previously sourced from BioTime that are no longer in
+  // the current BioTime roster (resigned / removed / disabled). This keeps the
+  // new system consistent with BioTime: a deactivated employee stops appearing
+  // as active in every report and filter.
+  const uniqueCardIds = [...new Set(seenCardIds)];
+  let deactivated = 0;
+  if (uniqueCardIds.length > 0) {
+    const result = await pool.query(
+      `UPDATE employees
+       SET status = 'inactive', updated_at = NOW()
+       WHERE source = 'biotime'
+         AND status = 'active'
+         AND card_id IS NOT NULL
+         AND NOT (card_id = ANY($1::text[]))`,
+      [uniqueCardIds]
+    );
+    deactivated = result.rowCount || 0;
+  }
+
+  console.log(`Employees synced: ${synced}, deactivated against BioTime: ${deactivated}`);
+  return { synced, deactivated };
 };
 
 const syncAttendance = async () => {
@@ -161,8 +219,10 @@ const computeAttendanceSummary = async () => {
 
 const fullSync = async () => {
   console.log("Starting full BioTime sync...");
+  let deactivated = 0;
   try {
-    await syncEmployees();
+    const result = await syncEmployees();
+    deactivated = (result && result.deactivated) || 0;
   } catch (e) {
     console.error("Employee sync failed:", e.message);
   }
@@ -177,7 +237,7 @@ const fullSync = async () => {
   } catch (e) {
     console.error("Summary computation failed:", e.message);
   }
-  console.log("Full sync complete.");
+  console.log(`Full sync complete. Employees deactivated: ${deactivated}`);
   return inserted;
 };
 

@@ -1,5 +1,5 @@
 const pool = require("../config/db");
-const { getDepartmentFilter } = require("../utils/departmentFilter");
+const { buildEmployeeFilter } = require("../utils/departmentFilter");
 const { computeTotalHours } = require("../services/attendanceTime");
 const { workingDayKeys: getWorkingDayKeys, getWorkingDays } = require("../services/workingDays");
 
@@ -15,7 +15,11 @@ function dateKey(value) {
 
 exports.list = async (req, res) => {
   try {
-    const { department, start_date, end_date, status } = req.query;
+    const { start_date, end_date, status } = req.query;
+    const selectedDepts = Array.isArray(req.query.departments)
+      ? req.query.departments.map((d) => String(d).trim()).filter(Boolean)
+      : String(req.query.departments || "").split(",").map((d) => d.trim()).filter(Boolean);
+    const selectedIds = String(req.query.employee_ids || "").split(",").map((s) => parseInt(s, 10)).filter((n) => Number.isFinite(n));
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi", year: "numeric", month: "2-digit", day: "2-digit" });
     const start = start_date || today;
     const end = end_date || today;
@@ -33,14 +37,11 @@ exports.list = async (req, res) => {
     const params = [start, end, workingDays];
     let idx = 4;
 
-    const deptFilter = getDepartmentFilter(req.user, idx);
+    const deptFilter = buildEmployeeFilter(req.user, idx, selectedDepts, selectedIds);
     if (deptFilter.clause) {
       query += deptFilter.clause;
-      params.push(deptFilter.value);
+      params.push(...deptFilter.params);
       idx = deptFilter.nextIdx;
-    } else if (department) {
-      query += ` AND e.department = $${idx++}`;
-      params.push(department);
     }
 
     if (status) { query += ` AND asci.status = $${idx++}`; params.push(status); }

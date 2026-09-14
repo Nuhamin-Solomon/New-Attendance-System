@@ -5,6 +5,7 @@ const { authenticate, authorize } = require("../middleware/auth");
 router.use(authenticate);
 
 router.get("/dashboard", ctrl.dashboardStats);
+router.get("/employee-options", ctrl.employeeOptions);
 router.get("/daily", authorize("admin", "hr", "manager"), ctrl.daily);
 router.get("/weekly", authorize("admin", "hr", "manager"), ctrl.weekly);
 router.get("/monthly", authorize("admin", "hr", "manager"), ctrl.monthly);

@@ -3,7 +3,9 @@ import API from "../services/api";
 import Icon from "../components/Icon";
 import ReportHeader from "../components/ReportHeader";
 import SearchBar from "../components/SearchBar";
+import DepartmentFilter from "../components/DepartmentFilter";
 import { matchesSearch } from "../utils/search";
+import { buildReportParams, activeFilterLabel } from "../utils/reportFilters";
 
 function getMonthStart() {
   const d = new Date(); d.setUTCDate(1);
@@ -16,21 +18,21 @@ function getMonthEnd() {
 
 export default function MonthlyReport() {
   const [data, setData] = useState(null);
-  const [departments, setDepartments] = useState([]);
-  const [department, setDepartment] = useState("");
+  const [filterDepts, setFilterDepts] = useState([]);
   const [startDate, setStartDate] = useState(getMonthStart);
   const [endDate, setEndDate] = useState(getMonthEnd);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
 
-  useEffect(() => { API.get("/reports/department").then((r) => setDepartments(r.data.departments || [])).catch(() => {}); }, []);
-
   useEffect(() => {
     setLoading(true);
-    const params = { start_date: startDate, end_date: endDate };
-    if (department) params.department = department;
+    const params = buildReportParams({ start_date: startDate, end_date: endDate }, { departments: filterDepts });
     API.get("/reports/monthly", { params }).then((r) => setData(r.data)).catch(() => {}).finally(() => setLoading(false));
-  }, [startDate, endDate, department]);
+  }, [startDate, endDate, filterDepts]);
+
+  const handleApplyDepartments = (departments) => {
+    setFilterDepts(departments);
+  };
 
   const days = data?.days || [];
   const weekGroups = data?.weekGroups || [];
@@ -92,7 +94,7 @@ export default function MonthlyReport() {
 
   return (
     <div className="page-container">
-      <ReportHeader title="Monthly Attendance Report" subtitle={`Reporting Period: ${startDate} to ${endDate}`} dateRange={department ? `Department: ${department}` : "All Departments"}>
+      <ReportHeader title="Monthly Attendance Report" subtitle={`Reporting Period: ${startDate} to ${endDate}`} dateRange={activeFilterLabel(filterDepts, []) || "All Employees & Departments"}>
         <button className="btn btn-ghost no-print" onClick={() => window.print()}><Icon name="eye" size={14} /> Print</button>
         <button className="btn btn-primary no-print" onClick={handleExport}><Icon name="download" size={14} /> Export Excel</button>
       </ReportHeader>
@@ -101,10 +103,7 @@ export default function MonthlyReport() {
         <input type="date" className="form-input form-input-sm" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         <label className="form-label" style={{ margin: 0 }}>End Date</label>
         <input type="date" className="form-input form-input-sm" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-        <select className="form-input form-input-sm form-select-sm" value={department} onChange={(e) => setDepartment(e.target.value)}>
-          <option value="">All Departments</option>
-          {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
+        <DepartmentFilter selectedDepartments={filterDepts} onApply={handleApplyDepartments} />
         <SearchBar value={query} onChange={setQuery} />
       </div>
       <div className="panel report-panel">

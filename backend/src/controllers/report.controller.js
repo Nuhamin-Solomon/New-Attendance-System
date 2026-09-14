@@ -1,26 +1,23 @@
 const pool = require("../config/db");
-const { getDepartmentFilter } = require("../utils/departmentFilter");
+const { buildEmployeeFilter, parseList, parseIdList } = require("../utils/departmentFilter");
 const { computeTotalHours } = require("../services/attendanceTime");
 const { workingDayKeys, getWorkingDays, isWorkingDay } = require("../services/workingDays");
 
 exports.daily = async (req, res) => {
   try {
     const date = req.query.date || (await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Nairobi')::date AS d")).rows[0].d;
-    const department = req.query.department;
+    const selectedDepts = parseList(req.query.departments);
+    const selectedIds = parseIdList(req.query.employee_ids);
 
     let whereExtra = "";
     let params = [date];
     let idx = 2;
 
-    const deptFilter = getDepartmentFilter(req.user, idx);
+    const deptFilter = buildEmployeeFilter(req.user, idx, selectedDepts, selectedIds);
     if (deptFilter.clause) {
       whereExtra += deptFilter.clause;
-      params.push(deptFilter.value);
+      params.push(...deptFilter.params);
       idx = deptFilter.nextIdx;
-    } else if (department) {
-      whereExtra += ` AND e.department = $${idx}`;
-      params.push(department);
-      idx++;
     }
 
     const [dailySummaryResult, dailyLogsResult] = await Promise.all([
@@ -50,10 +47,10 @@ exports.daily = async (req, res) => {
           COUNT(al.id) AS scan_count
          FROM attendance_logs al
          JOIN employees e ON e.id = al.employee_id
-         WHERE e.status = 'active' AND DATE(al.scan_time) = $1 ${whereExtra.replace(/AND e\.department = \$\d+/g, "").replace(/AND e\.department = ANY\(\$\d+\)/g, "")}
+         WHERE e.status = 'active' AND DATE(al.scan_time) = $1 ${whereExtra}
          GROUP BY al.employee_id, DATE(al.scan_time)
          ORDER BY al.employee_id`,
-        [date]
+        params
       ),
     ]);
 
@@ -135,7 +132,9 @@ exports.daily = async (req, res) => {
 
 exports.weekly = async (req, res) => {
   try {
-    const { start_date, end_date, department } = req.query;
+    const { start_date, end_date } = req.query;
+    const selectedDepts = parseList(req.query.departments);
+    const selectedIds = parseIdList(req.query.employee_ids);
 
     let startDate = start_date;
     let endDate = end_date;
@@ -178,15 +177,11 @@ exports.weekly = async (req, res) => {
     let params = [dayKeys];
     let idx = 2;
 
-    const deptFilter = getDepartmentFilter(req.user, idx);
+    const deptFilter = buildEmployeeFilter(req.user, idx, selectedDepts, selectedIds);
     if (deptFilter.clause) {
       whereExtra += deptFilter.clause;
-      params.push(deptFilter.value);
+      params.push(...deptFilter.params);
       idx = deptFilter.nextIdx;
-    } else if (department) {
-      whereExtra += ` AND e.department = $${idx}`;
-      params.push(department);
-      idx++;
     }
 
     const result = await pool.query(
@@ -250,7 +245,9 @@ exports.weekly = async (req, res) => {
 
 exports.monthly = async (req, res) => {
   try {
-    const { start_date, end_date, department } = req.query;
+    const { start_date, end_date } = req.query;
+    const selectedDepts = parseList(req.query.departments);
+    const selectedIds = parseIdList(req.query.employee_ids);
 
     let startDate = start_date;
     let endDate = end_date;
@@ -296,15 +293,11 @@ exports.monthly = async (req, res) => {
     let params = [dayKeys];
     let idx = 2;
 
-    const deptFilter = getDepartmentFilter(req.user, idx);
+    const deptFilter = buildEmployeeFilter(req.user, idx, selectedDepts, selectedIds);
     if (deptFilter.clause) {
       whereExtra += deptFilter.clause;
-      params.push(deptFilter.value);
+      params.push(...deptFilter.params);
       idx = deptFilter.nextIdx;
-    } else if (department) {
-      whereExtra += ` AND e.department = $${idx}`;
-      params.push(department);
-      idx++;
     }
 
     const result = await pool.query(
@@ -514,7 +507,9 @@ function applyStatusFilter(employees, status) {
 
 exports.summaryMonthly = async (req, res) => {
   try {
-    const { start_date, end_date, department, search, status } = req.query;
+    const { start_date, end_date, search, status } = req.query;
+    const selectedDepts = parseList(req.query.departments);
+    const selectedIds = parseIdList(req.query.employee_ids);
 
     let startDate = start_date;
     let endDate = end_date;
@@ -538,15 +533,11 @@ exports.summaryMonthly = async (req, res) => {
     const params = [];
     let idx = 1;
 
-    const deptFilter = getDepartmentFilter(req.user, idx);
+    const deptFilter = buildEmployeeFilter(req.user, idx, selectedDepts, selectedIds);
     if (deptFilter.clause) {
       whereExtra += deptFilter.clause;
-      params.push(deptFilter.value);
+      params.push(...deptFilter.params);
       idx = deptFilter.nextIdx;
-    } else if (department) {
-      whereExtra += ` AND e.department = $${idx}`;
-      params.push(department);
-      idx++;
     }
 
     if (search) {
@@ -743,29 +734,47 @@ exports.employeeDaily = async (req, res) => {
 
 exports.department = async (req, res) => {
   try {
-    const { department, start_date, end_date } = req.query;
+    const { start_date, end_date } = req.query;
+    const selectedDepts = parseList(req.query.departments);
+    const selectedIds = parseIdList(req.query.employee_ids);
     const todayResult = await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Nairobi')::date AS today");
     const today = todayResult.rows[0].today;
     const start = start_date || today;
     const end = end_date || today;
 
-    let effectiveDept = department;
-
     if (req.user.role !== "admin" && req.user.assigned_departments && req.user.assigned_departments.length > 0) {
       const assignedNames = req.user.assigned_departments.map((d) => d.department_name);
-      if (!effectiveDept || !assignedNames.includes(effectiveDept)) {
-        effectiveDept = assignedNames[0];
+      const remaining = selectedDepts.filter((d) => assignedNames.includes(d));
+      if (remaining.length === 0 && selectedDepts.length > 0) {
+        selectedDepts.splice(0, selectedDepts.length);
+        selectedDepts.push("__no_access__");
       }
     }
 
-    if (!effectiveDept) {
+    if (selectedDepts.length === 0 && selectedIds.length === 0) {
       const departments = await pool.query(
         `SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department != '' ORDER BY department`
       );
-      return res.json({ departments: departments.rows.map((d) => d.department) });
+      let deptList = departments.rows.map((d) => d.department);
+      if (req.user.role !== "admin") {
+        const assignedNames = (req.user.assigned_departments || []).map((d) => d.department_name);
+        deptList = deptList.filter((d) => assignedNames.includes(d));
+      }
+      return res.json({ departments: deptList });
     }
 
     const workingDays = await getWorkingDays();
+
+    let whereExtra = "";
+    const params = [start, end];
+    let idx = 3;
+
+    const deptFilter = buildEmployeeFilter(req.user, idx, selectedDepts, selectedIds);
+    if (deptFilter.clause) {
+      whereExtra += deptFilter.clause;
+      params.push(...deptFilter.params);
+      idx = deptFilter.nextIdx;
+    }
 
     const result = await pool.query(
       `SELECT
@@ -786,10 +795,10 @@ exports.department = async (req, res) => {
          FROM attendance_logs al2
          WHERE al2.employee_id = e.id AND DATE(al2.scan_time) = gs.day
        ) al ON true
-       WHERE e.department = $3 AND e.status = 'active'
-         AND EXTRACT(DOW FROM gs.day) = ANY($4::int[])
+       WHERE e.status = 'active' ${whereExtra}
+         AND EXTRACT(DOW FROM gs.day) = ANY($${idx}::int[])
        ORDER BY e.full_name, gs.day`,
-      [start, end, effectiveDept, workingDays]
+      [...params, workingDays]
     );
 
     const empMap = {};
@@ -832,11 +841,37 @@ exports.department = async (req, res) => {
     const attendanceRate = employees.length > 0 ? Math.round((totalWithHours / (employees.length * totalDays)) * 100) : 0;
 
     res.json({
-      department: effectiveDept, start, end,
+      departments: selectedDepts, start, end,
       employee_count: employees.length,
       attendance_rate: attendanceRate,
       employees,
     });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+exports.employeeOptions = async (req, res) => {
+  try {
+    const deptFilter = buildEmployeeFilter(req.user, 1);
+    const employeesResult = await pool.query(
+      `SELECT e.id AS employee_id, e.card_id, e.full_name, e.department
+       FROM employees e
+       WHERE e.status = 'active' ${deptFilter.clause}
+       ORDER BY e.department, e.full_name`,
+      deptFilter.params
+    );
+
+    const departmentsResult = await pool.query(
+      `SELECT DISTINCT department FROM employees WHERE status = 'active' AND department IS NOT NULL AND department != '' ORDER BY department`
+    );
+    let departments = departmentsResult.rows.map((d) => d.department);
+    if (req.user.role !== "admin") {
+      const assignedNames = (req.user.assigned_departments || []).map((d) => d.department_name);
+      departments = departments.filter((d) => assignedNames.includes(d));
+    }
+
+    res.json({ employees: employeesResult.rows, departments });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

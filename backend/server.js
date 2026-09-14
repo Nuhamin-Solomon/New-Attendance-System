@@ -83,12 +83,19 @@ if (require.main === module) {
 
     console.log("Starting BioTime Auto Sync...");
 
+    const SYNC_INTERVAL_MS = parseInt(process.env.BIOTIME_SYNC_INTERVAL_MS || "60000", 10);
+    let syncRunning = false;
+
     setInterval(async () => {
+      if (syncRunning) return;
+      syncRunning = true;
       try {
         await fullSync();
       } catch (err) {
         console.error(err);
+      } finally {
+        syncRunning = false;
       }
-    }, 60000);
+    }, SYNC_INTERVAL_MS);
   });
 }
