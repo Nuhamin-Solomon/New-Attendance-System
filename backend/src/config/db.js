@@ -39,17 +39,4 @@ poolConfig.connectionTimeoutMillis = 10000;
 
 const pool = new Pool(poolConfig);
 
-
-pool.connect()
-.then(() => {
-    console.log("Database connected successfully");
-})
-.catch((error)=>{
-    console.error(
-        "Database connection error:",
-        error.message
-    );
-});
-
-
 module.exports = pool;

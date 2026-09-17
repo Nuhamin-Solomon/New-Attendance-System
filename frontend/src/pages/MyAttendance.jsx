@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
 import SearchBar from "../components/SearchBar";
+import Pagination from "../components/Pagination";
 import { formatBioTimeDateValue, formatBioTimeTimeValue } from "../utils/time";
 import { matchesSearch } from "../utils/search";
+
+const PAGE_SIZE = 25;
 
 const statusBadge = (s) => {
   if (s === "present_partial") s = "present";
@@ -21,6 +24,7 @@ export default function MyAttendance() {
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
 
   const load = () => {
     setLoading(true);
@@ -31,6 +35,7 @@ export default function MyAttendance() {
   };
 
   useEffect(() => { load(); }, [startDate, endDate]);
+  useEffect(() => { setPage(1); }, [query, startDate, endDate]);
 
   const setPreset = (preset) => {
     const today = new Date();
@@ -65,6 +70,8 @@ export default function MyAttendance() {
       formatBioTimeDateValue(r.date).toLowerCase().includes(q)
     );
   }, [records, query]);
+
+  const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleExport = async () => {
     try {
@@ -155,13 +162,13 @@ export default function MyAttendance() {
             </thead>
             <tbody>
               {loading ? <tr><td colSpan={7} className="table-message">Loading...</td></tr>
-              : filtered.length ? filtered.map((r, i) => {
+              : filtered.length ? pageItems.map((r, i) => {
                 let notes = "";
                 if (r.status === "present_incomplete") notes = "Missing check-out";
                 else if (r.status === "approved") notes = r.notes || "Approved";
                 return (
                   <tr key={r.id}>
-                    <td className="td-muted">{i + 1}</td>
+                    <td className="td-muted">{(page - 1) * PAGE_SIZE + i + 1}</td>
                     <td className="strong-cell">{formatBioTimeDateValue(r.date)}</td>
                     <td className="td-center">{r.first_in ? formatBioTimeTimeValue(r.first_in) : "—"}</td>
                     <td className="td-center">{r.last_out ? formatBioTimeTimeValue(r.last_out) : "—"}</td>
@@ -174,7 +181,12 @@ export default function MyAttendance() {
             </tbody>
           </table>
         </div>
-        {filtered.length > 0 && <div className="table-footer">Showing {filtered.length} of {records.length} days | Total: {totalHours.toFixed(1)} hours</div>}
+        {filtered.length > 0 && (
+          <>
+            <div className="table-footer">Showing {filtered.length} of {records.length} days | Total: {totalHours.toFixed(1)} hours</div>
+            <Pagination page={page} totalPages={Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))} total={filtered.length} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="days" showInfo={false} />
+          </>
+        )}
       </div>
     </div>
   );

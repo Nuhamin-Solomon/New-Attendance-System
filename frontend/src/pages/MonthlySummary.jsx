@@ -4,8 +4,11 @@ import Icon from "../components/Icon";
 import ReportHeader from "../components/ReportHeader";
 import SearchBar from "../components/SearchBar";
 import DepartmentFilter from "../components/DepartmentFilter";
+import Pagination from "../components/Pagination";
 import { formatBioTimeDateValue } from "../utils/time";
 import { buildReportParams, activeFilterLabel } from "../utils/reportFilters";
+
+const PAGE_SIZE = 25;
 
 function getMonthStart() {
   const d = new Date();
@@ -39,6 +42,7 @@ export default function MonthlySummary() {
   const [endDate, setEndDate] = useState(getMonthEnd);
   const [status, setStatus] = useState("all");
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(() => new Set());
   const toggleExpand = (id) => {
@@ -60,11 +64,14 @@ export default function MonthlySummary() {
       .finally(() => setLoading(false));
   }, [startDate, endDate, filterDepts, status, query]);
 
+  useEffect(() => { setPage(1); }, [startDate, endDate, filterDepts, status]);
+
   const handleApplyDepartments = (departments) => {
     setFilterDepts(departments);
   };
 
   const employees = data?.employees || [];
+  const pageEmployees = employees.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const workingDays = data?.working_days || 0;
   const settings = data?.settings || {};
 
@@ -197,10 +204,10 @@ export default function MonthlySummary() {
               {loading ? (
                 <tr><td colSpan={14} className="table-message">Loading...</td></tr>
               ) : employees.length ? (
-                employees.map((emp, i) => (
+                pageEmployees.map((emp, i) => (
                   <>
                   <tr key={emp.employee_id}>
-                    <td className="sticky-col td-muted">{i + 1}</td>
+                    <td className="sticky-col td-muted">{(page - 1) * PAGE_SIZE + i + 1}</td>
                     <td className="sticky-col-2 td-center">{emp.card_id || emp.employee_id}</td>
                     <td className="sticky-col-3">
                       <button className="link-cell" onClick={() => openDetail(emp)}>
@@ -262,10 +269,13 @@ export default function MonthlySummary() {
           </table>
         </div>
         {employees.length > 0 && (
-          <div className="table-footer">
-            Showing {employees.length} employees | {workingDays} working days
-            {settings.overtime_threshold_hours ? ` | Overtime counted above ${settings.overtime_threshold_hours}h/day` : ""}
-          </div>
+          <>
+            <div className="table-footer">
+              Showing {employees.length} employees | {workingDays} working days
+              {settings.overtime_threshold_hours ? ` | Overtime counted above ${settings.overtime_threshold_hours}h/day` : ""}
+            </div>
+            <Pagination page={page} totalPages={Math.max(1, Math.ceil(employees.length / PAGE_SIZE))} total={employees.length} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="employees" showInfo={false} />
+          </>
         )}
       </div>
 

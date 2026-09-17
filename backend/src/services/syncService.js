@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { getEmployees, getAttendance } = require("./biotime.service");
+const { getAttendanceRules, classifyAttendance } = require("./attendanceRules");
 
 let schemaReady = null;
 
@@ -117,6 +118,7 @@ const syncAttendance = async () => {
 };
 
 const computeAttendanceSummary = async () => {
+  const rules = await getAttendanceRules();
   const result = await pool.query(`
     SELECT
       al.employee_id,
@@ -144,20 +146,9 @@ const computeAttendanceSummary = async () => {
   for (const row of result.rows) {
     const firstIn = row.first_in;
     const lastOut = row.last_out;
-    const diffMs = new Date(lastOut) - new Date(firstIn);
-    const totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
-
-    const hasMultipleScans = parseInt(row.scan_count) > 1;
-    const missingCheckout = !hasMultipleScans;
-
-    let status;
-    if (missingCheckout) {
-      status = "present_incomplete";
-    } else if (totalHours >= 1) {
-      status = "present";
-    } else {
-      status = "present_incomplete";
-    }
+    const classification = classifyAttendance({
+      firstIn, lastOut, scanCount: row.scan_count, rules,
+    });
 
     await pool.query(`
       INSERT INTO attendance_summary (employee_id, date, first_in, last_out, total_hours, status, is_late, late_minutes)
@@ -170,7 +161,8 @@ const computeAttendanceSummary = async () => {
         status = EXCLUDED.status,
         is_late = EXCLUDED.is_late,
         late_minutes = EXCLUDED.late_minutes
-    `, [row.employee_id, row.work_date, firstIn, lastOut, totalHours, status, false, 0]);
+    `, [row.employee_id, row.work_date, firstIn, lastOut, classification.totalHours,
+      classification.status, classification.isLate, classification.lateMinutes]);
     computed++;
   }
 

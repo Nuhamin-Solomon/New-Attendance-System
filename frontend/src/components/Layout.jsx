@@ -1,10 +1,13 @@
 import { useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Sidebar from "./Sidebar";
 import Icon from "./Icon";
 
 export default function Layout({ children, currentPage, onNavigate, onLogout }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
@@ -14,7 +17,14 @@ export default function Layout({ children, currentPage, onNavigate, onLogout }) 
           <Icon name="menu" size={20} />
         </button>
         <div className="mobile-brand">
-          <div className="brand-mark brand-mark-sm"><Icon name="building" size={14} /></div>
+          <button
+            className="brand-mark brand-mark-sm brand-mark-btn"
+            onClick={() => { if (location.pathname !== "/dashboard") navigate("/dashboard"); }}
+            title="Home"
+            aria-label="Go to Attendance Dashboard"
+          >
+            <Icon name="home" size={14} />
+          </button>
           <span>Kifiya</span>
         </div>
       </div>

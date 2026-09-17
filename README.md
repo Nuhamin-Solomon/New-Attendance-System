@@ -52,11 +52,12 @@ npm install
 npm run dev
 ```
 
-### Default Accounts
+### Initial administrator
 
-| Username | Password | Role |
-|----------|----------|------|
-| Admin | admin123 | Admin |
+This application does not ship with a universal administrator password. Create the
+initial administrator through the deployment/bootstrap process and store its
+credential in the organisation's secret manager. Do not use shared default
+credentials in any environment.
 
 ### Access
 

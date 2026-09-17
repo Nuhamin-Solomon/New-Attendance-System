@@ -1,7 +1,10 @@
 const jwt = require("jsonwebtoken");
 const pool = require("../config/db");
 
-const JWT_SECRET = process.env.JWT_SECRET || "kifiya-attendance-secret-2026";
+if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
+  throw new Error("JWT_SECRET must be configured in production");
+}
+const JWT_SECRET = process.env.JWT_SECRET || "development-only-attendance-secret";
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "24h";
 
 function generateToken(user) {
@@ -23,7 +26,7 @@ async function authenticate(req, res, next) {
     req.user = decoded;
 
     const result = await pool.query(
-      `SELECT u.id, u.username, u.role, u.full_name, u.employee_id, u.email,
+      `SELECT u.id, u.username, u.role, u.full_name, u.employee_id, u.email, u.is_active,
               e.department AS employee_department, e.full_name AS employee_name
        FROM users u
        LEFT JOIN employees e ON e.id = u.employee_id
@@ -33,6 +36,7 @@ async function authenticate(req, res, next) {
 
     if (result.rows.length > 0) {
       const row = result.rows[0];
+      if (!row.is_active) return res.status(401).json({ error: "Account is disabled" });
       req.user.employee_id = req.user.employee_id || row.employee_id;
       req.user.full_name = row.full_name || row.employee_name || row.username;
       req.user.email = row.email;

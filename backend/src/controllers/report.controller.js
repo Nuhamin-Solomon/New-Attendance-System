@@ -1,10 +1,12 @@
 const pool = require("../config/db");
 const { buildEmployeeFilter, parseList, parseIdList } = require("../utils/departmentFilter");
 const { computeTotalHours } = require("../services/attendanceTime");
+const { getAttendanceRules, classifyAttendance } = require("../services/attendanceRules");
 const { workingDayKeys, getWorkingDays, isWorkingDay } = require("../services/workingDays");
 
 exports.daily = async (req, res) => {
   try {
+    const rules = await getAttendanceRules();
     const date = req.query.date || (await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Nairobi')::date AS d")).rows[0].d;
     const selectedDepts = parseList(req.query.departments);
     const selectedIds = parseIdList(req.query.employee_ids);
@@ -60,24 +62,27 @@ exports.daily = async (req, res) => {
     }
 
     const result = dailySummaryResult.rows.map((r) => {
-      const log = dailyLogMap.get(`${r.employee_id}:${r.date}`);
+      const log = dailyLogMap.get(`${r.employee_id}:${date}`);
       const firstIn = log?.first_in || r.first_in || null;
       const lastOut = log?.last_out || r.last_out || null;
-      const totalHours = computeTotalHours(firstIn, lastOut);
+      const classification = classifyAttendance({
+        firstIn, lastOut, scanCount: log?.scan_count || (firstIn ? 2 : 0), rules,
+        approvedStatus: r.status, approvedType: r.notes || "",
+      });
       const checkIn = log?.first_in_time || r.first_in_time || (firstIn ? new Date(firstIn).toTimeString().slice(0, 5) : "");
       const checkOut = log?.last_out_time || r.last_out_time || (lastOut ? new Date(lastOut).toTimeString().slice(0, 5) : "");
       const hasScan = Boolean(firstIn || lastOut);
-      const isMissingCheckout = r.status === "present_incomplete" || (hasScan && (!lastOut || firstIn === lastOut));
-      const isApproved = r.status === "approved";
+      const isMissingCheckout = classification.status === "present_incomplete";
+      const isApproved = classification.approved;
 
       return {
         ...r,
         check_in: checkIn,
         check_out: checkOut,
-        total_hours: totalHours || r.total_hours || 0,
+        total_hours: classification.totalHours || r.total_hours || 0,
         missing_checkout: isMissingCheckout,
         approved: isApproved,
-        approved_type: isApproved ? r.notes : "",
+        approved_type: classification.approvedType,
       };
     });
 
@@ -95,8 +100,6 @@ exports.daily = async (req, res) => {
       } else if (hasScan) {
         presentCount++;
         totalHours += parseFloat(r.total_hours) || 0;
-      } else if (r.status !== "absent") {
-        presentCount++;
       } else {
         absentCount++;
       }
@@ -192,7 +195,10 @@ exports.weekly = async (req, res) => {
         TO_CHAR(al.last_out, 'HH24:MI') AS check_out,
         al.scan_count,
         al.first_in AS first_in_raw,
-        al.last_out AS last_out_raw
+        al.last_out AS last_out_raw,
+        asci.status AS summary_status,
+        asci.notes AS summary_notes,
+        asci.total_hours AS summary_hours
        FROM employees e
        CROSS JOIN (SELECT unnest($1::text[])::date AS day) wd
        LEFT JOIN LATERAL (
@@ -203,6 +209,7 @@ exports.weekly = async (req, res) => {
          FROM attendance_logs al2
          WHERE al2.employee_id = e.id AND DATE(al2.scan_time) = wd.day
        ) al ON true
+       LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date = wd.day
        WHERE e.status = 'active' ${whereExtra}
        ORDER BY e.full_name, wd.day`,
       params
@@ -221,19 +228,20 @@ exports.weekly = async (req, res) => {
         };
       }
       const hasScan = Boolean(row.first_in_raw || row.last_out_raw);
-      const isMissingCheckout = hasScan && (!row.last_out_raw || row.scan_count <= 1);
+      const isApproved = row.summary_status === "approved" || row.summary_status === "on_leave" || row.summary_status === "leave";
+      const isMissingCheckout = !isApproved && (row.summary_status === "present_incomplete" || (hasScan && (!row.last_out_raw || row.scan_count <= 1)));
 
       grouped[row.employee_id].days[row.day_key] = {
         check_in: row.check_in || "",
         check_out: row.check_out || "",
-        total_hours: computeTotalHours(row.first_in_raw, row.last_out_raw),
+        total_hours: row.summary_hours ?? computeTotalHours(row.first_in_raw, row.last_out_raw),
         missing_checkout: isMissingCheckout,
-        absent: !hasScan,
-        approved: false,
-        approved_type: "",
+        absent: !hasScan && !isApproved,
+        approved: isApproved,
+        approved_type: isApproved ? (row.summary_notes || row.summary_status.replace(/_/g, " ")) : "",
       };
-      if (hasScan && !isMissingCheckout) {
-        grouped[row.employee_id].weekly_hours += computeTotalHours(row.first_in_raw, row.last_out_raw);
+      if (hasScan && !isMissingCheckout && !isApproved) {
+        grouped[row.employee_id].weekly_hours += Number(row.summary_hours ?? computeTotalHours(row.first_in_raw, row.last_out_raw));
       }
     }
 
@@ -308,7 +316,10 @@ exports.monthly = async (req, res) => {
         TO_CHAR(al.last_out, 'HH24:MI') AS check_out,
         al.scan_count,
         al.first_in AS first_in_raw,
-        al.last_out AS last_out_raw
+        al.last_out AS last_out_raw,
+        asci.status AS summary_status,
+        asci.notes AS summary_notes,
+        asci.total_hours AS summary_hours
        FROM employees e
        CROSS JOIN (SELECT unnest($1::text[])::date AS day) wd
        LEFT JOIN LATERAL (
@@ -319,6 +330,7 @@ exports.monthly = async (req, res) => {
          FROM attendance_logs al2
          WHERE al2.employee_id = e.id AND DATE(al2.scan_time) = wd.day
        ) al ON true
+       LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date = wd.day
        WHERE e.status = 'active' ${whereExtra}
        ORDER BY e.full_name, wd.day`,
       params
@@ -337,19 +349,20 @@ exports.monthly = async (req, res) => {
         };
       }
       const hasScan = Boolean(row.first_in_raw || row.last_out_raw);
-      const isMissingCheckout = hasScan && (!row.last_out_raw || row.scan_count <= 1);
+      const isApproved = row.summary_status === "approved" || row.summary_status === "on_leave" || row.summary_status === "leave";
+      const isMissingCheckout = !isApproved && (row.summary_status === "present_incomplete" || (hasScan && (!row.last_out_raw || row.scan_count <= 1)));
 
       grouped[row.employee_id].days[row.day_key] = {
         check_in: row.check_in || "",
         check_out: row.check_out || "",
-        total_hours: computeTotalHours(row.first_in_raw, row.last_out_raw),
+        total_hours: row.summary_hours ?? computeTotalHours(row.first_in_raw, row.last_out_raw),
         missing_checkout: isMissingCheckout,
-        absent: !hasScan,
-        approved: false,
-        approved_type: "",
+        absent: !hasScan && !isApproved,
+        approved: isApproved,
+        approved_type: isApproved ? (row.summary_notes || row.summary_status.replace(/_/g, " ")) : "",
       };
-      if (hasScan && !isMissingCheckout) {
-        grouped[row.employee_id].total_hours += computeTotalHours(row.first_in_raw, row.last_out_raw);
+      if (hasScan && !isMissingCheckout && !isApproved) {
+        grouped[row.employee_id].total_hours += Number(row.summary_hours ?? computeTotalHours(row.first_in_raw, row.last_out_raw));
       }
     }
 
@@ -881,101 +894,140 @@ exports.dashboardStats = async (req, res) => {
   try {
     const todayResult = await pool.query("SELECT (NOW() AT TIME ZONE 'Africa/Nairobi')::date AS today");
     const today = todayResult.rows[0].today;
+    const todayKey = String(today).slice(0, 10);
     const workingDays = await getWorkingDays();
-    const todayIsWorkingDay = workingDays.includes(new Date(today + "T12:00:00Z").getUTCDay());
+    const todayIsWorkingDay = workingDays.includes(new Date(todayKey + "T12:00:00Z").getUTCDay());
 
     const isAdmin = req.user.role === "admin";
     const assignedDepts = req.user.assigned_departments || [];
     const hasDeptFilter = !isAdmin && assignedDepts.length > 0;
     const deptNames = assignedDepts.map((d) => d.department_name);
 
-    let totalEmps;
-    if (isAdmin) {
-      totalEmps = parseInt((await pool.query(`SELECT COUNT(*) FROM employees WHERE status = 'active'`)).rows[0].count);
-    } else if (hasDeptFilter) {
-      totalEmps = parseInt((await pool.query(`SELECT COUNT(*) FROM employees WHERE status = 'active' AND department = ANY($1)`, [deptNames])).rows[0].count);
-    } else {
-      totalEmps = 0;
+    const attendanceRules = await getAttendanceRules();
+
+    let empScope = "";
+    let empParams = [];
+    if (hasDeptFilter) {
+      empScope = " AND e.department = ANY($1)";
+      empParams = [deptNames];
     }
 
-    let todaySummary;
-    if (!todayIsWorkingDay) {
-      todaySummary = { rows: [] };
-    } else if (isAdmin) {
-      todaySummary = await pool.query(`SELECT status, COUNT(*) AS count FROM attendance_summary WHERE date = $1 GROUP BY status`, [today]);
-    } else if (hasDeptFilter) {
-      todaySummary = await pool.query(
-        `SELECT asci.status, COUNT(*) AS count
-         FROM attendance_summary asci
-         JOIN employees e ON e.id = asci.employee_id
-         WHERE asci.date = $1 AND e.department = ANY($2) AND e.status = 'active'
-         GROUP BY asci.status`,
-        [today, deptNames]
-      );
-    } else {
-      todaySummary = { rows: [] };
+    const empResult = await pool.query(
+      `SELECT e.id AS employee_id, e.card_id, e.full_name, e.department
+       FROM employees e
+       WHERE e.status = 'active'${empScope}
+       ORDER BY e.full_name`,
+      isAdmin ? [] : empParams
+    );
+    const employees = empResult.rows;
+    const totalEmps = employees.length;
+
+    const windowStart = new Date(Date.now() - 60 * 86400000);
+    const windowStartKey = dateKeyUTC(windowStart);
+    const dayKeys = await workingDayKeys(windowStartKey, todayKey, workingDays);
+
+    const rollups = {};
+    for (const dk of dayKeys) {
+      rollups[dk] = { date_key: dk, present: 0, absent: 0, missing_checkout: 0, late: 0, approved: 0 };
     }
 
-    const statusCounts = {};
-    for (const row of todaySummary.rows) {
-      statusCounts[row.status] = parseInt(row.count);
+    const todayRowMap = new Map();
+    let todayAttendance = [];
+
+    if (totalEmps > 0 && dayKeys.length > 0) {
+      const ids = employees.map((e) => e.employee_id);
+      const [logsRes, sumRes] = await Promise.all([
+        pool.query(
+          `SELECT al.employee_id, DATE(al.scan_time) AS day, COUNT(al.id) AS scan_count,
+                  MIN(al.scan_time) AS first_in, MAX(al.scan_time) AS last_out,
+                  TO_CHAR(MIN(al.scan_time), 'HH24:MI') AS first_in_time,
+                  TO_CHAR(MAX(al.scan_time), 'HH24:MI') AS last_out_time
+           FROM attendance_logs al
+           WHERE al.employee_id = ANY($1::int[])
+             AND DATE(al.scan_time) >= $2::date AND DATE(al.scan_time) <= $3::date
+           GROUP BY al.employee_id, DATE(al.scan_time)`,
+          [ids, windowStartKey, today]
+        ),
+        pool.query(
+          `SELECT employee_id, date, status, notes, first_in, last_out, total_hours,
+                  TO_CHAR(first_in, 'HH24:MI') AS first_in_time,
+                  TO_CHAR(last_out, 'HH24:MI') AS last_out_time
+           FROM attendance_summary
+           WHERE employee_id = ANY($1::int[])
+             AND date >= $2::date AND date <= $3::date`,
+          [ids, windowStartKey, today]
+        )
+      ]);
+
+      const logMap = new Map(logsRes.rows.map((r) => [`${r.employee_id}:${dateKey(r.day)}`, r]));
+      const summaryMap = new Map(sumRes.rows.map((r) => [`${r.employee_id}:${dateKey(r.date)}`, r]));
+
+      for (const emp of employees) {
+        let todayComputed = null;
+        for (const dk of dayKeys) {
+          const s = summaryMap.get(`${emp.employee_id}:${dk}`);
+          const log = logMap.get(`${emp.employee_id}:${dk}`);
+          const status = s ? s.status : null;
+          const firstIn = log ? log.first_in : s ? s.first_in : "";
+          const lastOut = log ? log.last_out : s ? s.last_out : "";
+          const firstInTime = (log ? log.first_in_time : s ? s.first_in_time : "") || "";
+          const lastOutTime = (log ? log.last_out_time : s ? s.last_out_time : "") || "";
+          const classification = classifyAttendance({
+            firstIn,
+            lastOut,
+            scanCount: log?.scan_count || (firstIn ? 2 : 0),
+            rules: attendanceRules,
+            approvedStatus: status,
+            approvedType: s?.notes || "",
+          });
+          const computed = classification.status === "present_incomplete"
+            ? "missing_checkout"
+            : classification.status === "on_leave" || classification.status === "leave"
+              ? "approved"
+              : classification.status === "present" && classification.isLate ? "late" : classification.status;
+
+          const rollup = rollups[dk];
+          if (computed === "approved") rollup.approved++;
+          else if (computed === "missing_checkout") rollup.missing_checkout++;
+          else if (computed === "late") { rollup.present++; rollup.late++; }
+          else if (computed === "present") rollup.present++;
+          else rollup.absent++;
+
+          if (dk === todayKey) {
+            todayComputed = {
+              employee_id: emp.employee_id,
+              card_id: emp.card_id,
+              full_name: emp.full_name,
+              department: emp.department,
+              first_in: firstInTime,
+              last_out: lastOutTime,
+              total_hours: classification.totalHours || s?.total_hours || 0,
+              status: computed,
+            };
+          }
+        }
+        if (todayComputed) {
+          todayRowMap.set(emp.employee_id, todayComputed);
+          todayAttendance.push(todayComputed);
+        }
+      }
     }
 
-    const totalAccounted = Object.values(statusCounts).reduce((s, v) => s + v, 0);
-    if (totalAccounted < totalEmps && todayIsWorkingDay) {
-      statusCounts.absent = (statusCounts.absent || 0) + (totalEmps - totalAccounted);
-    }
+    const todayRollup = todayIsWorkingDay ? rollups[todayKey] : null;
 
-    let deptStats;
-    if (!todayIsWorkingDay) {
-      deptStats = { rows: [] };
-    } else if (isAdmin) {
-      deptStats = await pool.query(
-        `SELECT e.department,
-                COUNT(*) AS total,
-                SUM(CASE WHEN asci.status NOT IN ('absent', 'approved') THEN 1 ELSE 0 END) AS present
-         FROM employees e
-         LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date = $1
-         WHERE e.department IS NOT NULL AND e.status = 'active'
-         GROUP BY e.department ORDER BY total DESC`,
-        [today]
-      );
-    } else if (hasDeptFilter) {
-      deptStats = await pool.query(
-        `SELECT e.department,
-                COUNT(*) AS total,
-                SUM(CASE WHEN asci.status NOT IN ('absent', 'approved') THEN 1 ELSE 0 END) AS present
-         FROM employees e
-         LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date = $1
-         WHERE e.department = ANY($2) AND e.status = 'active'
-         GROUP BY e.department ORDER BY total DESC`,
-        [today, deptNames]
-      );
-    } else {
-      deptStats = { rows: [] };
-    }
-
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
-    let trend;
-    if (isAdmin) {
-      trend = await pool.query(
-        `SELECT TO_CHAR(date, 'YYYY-MM-DD') AS date_key, status, COUNT(*) AS count
-         FROM attendance_summary WHERE date >= $1 AND EXTRACT(DOW FROM date) = ANY($2::int[])
-         GROUP BY date, status ORDER BY date`,
-        [thirtyDaysAgo, workingDays]
-      );
-    } else if (hasDeptFilter) {
-      trend = await pool.query(
-        `SELECT TO_CHAR(t.date, 'YYYY-MM-DD') AS date_key, t.status, COUNT(*) AS count
-         FROM attendance_summary t
-         JOIN employees e ON e.id = t.employee_id
-         WHERE t.date >= $1 AND e.department = ANY($2) AND e.status = 'active'
-           AND EXTRACT(DOW FROM t.date) = ANY($3::int[])
-         GROUP BY t.date, t.status ORDER BY t.date`,
-        [thirtyDaysAgo, deptNames, workingDays]
-      );
-    } else {
-      trend = { rows: [] };
+    const deptAgg = {};
+    for (const emp of employees) {
+      const dept = emp.department || "Unclassified";
+      if (!deptAgg[dept]) deptAgg[dept] = { name: dept, total: 0, present: 0, missing: 0, absent: 0, late: 0 };
+      deptAgg[dept].total++;
+      const row = todayRowMap.get(emp.employee_id);
+      const status = row ? row.status : todayIsWorkingDay ? "absent" : null;
+      const d = deptAgg[dept];
+      if (status === null) continue;
+      if (status === "present" || status === "late") { d.present++; if (status === "late") d.late++; }
+      else if (status === "missing_checkout") d.missing++;
+      else if (status === "approved") d.approved = (d.approved || 0) + 1;
+      else if (status === "absent") d.absent++;
     }
 
     let recentRequests;
@@ -1001,20 +1053,29 @@ exports.dashboardStats = async (req, res) => {
 
     res.json({
       total_employees: totalEmps,
+      date: todayKey,
       today: {
-        present: (statusCounts.present || 0) + (statusCounts.present_partial || 0),
-        absent: statusCounts.absent || 0,
-        missing_checkout: statusCounts.present_incomplete || 0,
-        approved: statusCounts.approved || 0,
-        leave: statusCounts.leave || 0,
+        present: todayRollup ? todayRollup.present : 0,
+        absent: todayRollup ? todayRollup.absent : 0,
+        missing_checkout: todayRollup ? todayRollup.missing_checkout : 0,
+        late: todayRollup ? todayRollup.late : 0,
+        approved: todayRollup ? todayRollup.approved : 0,
+        leave: 0,
       },
-      departments: deptStats.rows.map((d) => ({
-        name: d.department,
-        total: parseInt(d.total),
-        present: parseInt(d.present),
-        rate: parseInt(d.total) > 0 ? Math.round((parseInt(d.present) / parseInt(d.total)) * 100) : 0,
-      })),
-      trend: trend.rows,
+      today_attendance: todayAttendance,
+      departments: Object.values(deptAgg)
+        .map((d) => ({
+          name: d.name,
+          total: d.total,
+          present: d.present,
+          missing: d.missing,
+          absent: d.absent,
+          late: d.late,
+          approved: d.approved || 0,
+          rate: d.total > 0 ? Math.round((d.present / d.total) * 100) : 0,
+        }))
+        .sort((a, b) => b.total - a.total),
+      trend: dayKeys.map((dk) => rollups[dk]),
       recent_requests: recentRequests.rows,
     });
   } catch (e) {

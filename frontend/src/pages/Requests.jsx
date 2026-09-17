@@ -1,6 +1,9 @@
 import { useEffect, useState, useMemo } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
+import Pagination from "../components/Pagination";
+
+const PAGE_SIZE = 25;
 
 const REQUEST_TYPES = [
   { value: "field_duty", label: "Field Duty", showLocation: true },
@@ -25,10 +28,12 @@ export default function Requests() {
   const [editId, setEditId] = useState(null);
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
 
   const load = () => { API.get("/requests").then((r) => setRequests(r.data)).catch(() => {}).finally(() => setLoading(false)); };
   useEffect(() => { load(); }, []);
+  useEffect(() => { setPage(1); }, [filter, query]);
 
   const selectedType = REQUEST_TYPES.find((t) => t.value === form.request_type);
 
@@ -61,13 +66,17 @@ export default function Requests() {
   const statusFiltered = filter === "all" ? requests : requests.filter((r) => r.status === filter);
   const pendingCount = requests.filter((r) => r.status === "pending").length;
 
-  const filtered = useMemo(() => {
+  const filteredAll = useMemo(() => {
     const q = query.toLowerCase();
     if (!q) return statusFiltered;
     return statusFiltered.filter((r) =>
       [r.request_type, r.reason, r.location, r.status, r.manager_status, r.hr_status].some((v) => String(v || "").toLowerCase().includes(q))
     );
   }, [statusFiltered, query]);
+
+  const filteredTotal = filteredAll.length;
+  const totalPages = Math.max(1, Math.ceil(filteredTotal / PAGE_SIZE));
+  const filtered = filteredAll.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const statusBadge = (s) => {
     const map = { approved: "green", manager_approved: "teal", rejected: "red", pending: "orange" };
@@ -149,6 +158,7 @@ export default function Requests() {
             </tbody>
           </table>
         </div>
+        <Pagination page={page} totalPages={totalPages} total={filteredTotal} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="requests" />
       </div>
     </div>
   );

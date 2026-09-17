@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "bootstrap:qa": "node scripts/bootstrapQaUsers.js",
+    "test": "node --test src/**/*.test.js"
   },
   "keywords": [],
   "author": "",

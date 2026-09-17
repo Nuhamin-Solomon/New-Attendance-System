@@ -4,8 +4,11 @@ import Icon from "../components/Icon";
 import ReportHeader from "../components/ReportHeader";
 import SearchBar from "../components/SearchBar";
 import DepartmentFilter from "../components/DepartmentFilter";
+import Pagination from "../components/Pagination";
 import { matchesSearch } from "../utils/search";
 import { buildReportParams, activeFilterLabel } from "../utils/reportFilters";
+
+const PAGE_SIZE = 25;
 
 function getMonthStart() {
   const d = new Date(); d.setUTCDate(1);
@@ -22,13 +25,18 @@ export default function MonthlyReport() {
   const [startDate, setStartDate] = useState(getMonthStart);
   const [endDate, setEndDate] = useState(getMonthEnd);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     setLoading(true);
+    setError("");
     const params = buildReportParams({ start_date: startDate, end_date: endDate }, { departments: filterDepts });
-    API.get("/reports/monthly", { params }).then((r) => setData(r.data)).catch(() => {}).finally(() => setLoading(false));
+    API.get("/reports/monthly", { params }).then((r) => setData(r.data)).catch((err) => setError(err.response?.data?.error || "Unable to load the monthly report. Please retry.")).finally(() => setLoading(false));
   }, [startDate, endDate, filterDepts]);
+
+  useEffect(() => { setPage(1); }, [query, filterDepts]);
 
   const handleApplyDepartments = (departments) => {
     setFilterDepts(departments);
@@ -38,6 +46,7 @@ export default function MonthlyReport() {
   const weekGroups = data?.weekGroups || [];
   const employees = data?.employees || [];
   const filteredEmployees = useMemo(() => employees.filter((e) => matchesSearch(e, query, ["full_name", "card_id", "department"])), [employees, query]);
+  const pageEmployees = filteredEmployees.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleExport = async () => {
     if (!data) return;
@@ -106,6 +115,7 @@ export default function MonthlyReport() {
         <DepartmentFilter selectedDepartments={filterDepts} onApply={handleApplyDepartments} />
         <SearchBar value={query} onChange={setQuery} />
       </div>
+      {error && <div className="alert alert-error" role="alert">{error}</div>}
       <div className="panel report-panel">
         <div className="table-wrap report-table-wrap">
           <table className="report-table">
@@ -139,9 +149,9 @@ export default function MonthlyReport() {
               {loading ? (
                 <tr><td colSpan={4 + days.length * 3 + 1} className="table-message">Loading...</td></tr>
               ) : filteredEmployees.length ? (
-                filteredEmployees.map((emp, i) => (
+                pageEmployees.map((emp, i) => (
                   <tr key={emp.employee_id}>
-                    <td className="sticky-col td-muted">{i + 1}</td>
+                    <td className="sticky-col td-muted">{(page - 1) * PAGE_SIZE + i + 1}</td>
                     <td className="sticky-col-2 td-center">{emp.card_id || emp.employee_id}</td>
                     <td className="sticky-col-3 strong-cell">{emp.full_name}</td>
                     <td className="sticky-col-4"><span className="badge badge-blue">{emp.department || "\u2014"}</span></td>
@@ -168,7 +178,10 @@ export default function MonthlyReport() {
           </table>
         </div>
         {filteredEmployees.length > 0 && (
-          <div className="table-footer">Showing {filteredEmployees.length} of {employees.length} employees | {days.length} days | {weekGroups.length} week{weekGroups.length !== 1 ? "s" : ""}</div>
+          <>
+            <div className="table-footer">Showing {filteredEmployees.length} of {employees.length} employees | {days.length} days | {weekGroups.length} week{weekGroups.length !== 1 ? "s" : ""}</div>
+            <Pagination page={page} totalPages={Math.max(1, Math.ceil(filteredEmployees.length / PAGE_SIZE))} total={filteredEmployees.length} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="employees" showInfo={false} />
+          </>
         )}
       </div>
     </div>

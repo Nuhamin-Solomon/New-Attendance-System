@@ -1,6 +1,9 @@
 import { useEffect, useState, useMemo } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
+import Pagination from "../components/Pagination";
+
+const PAGE_SIZE = 25;
 
 export default function MyRequests() {
   const [tab, setTab] = useState("attendance");
@@ -9,6 +12,7 @@ export default function MyRequests() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
 
   const load = () => {
     setLoading(true);
@@ -21,6 +25,7 @@ export default function MyRequests() {
     }).catch(() => {}).finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => { setPage(1); }, [tab, filter, query]);
 
   const handleCancelRequest = async (id) => {
     if (!confirm("Cancel this request?")) return;
@@ -57,7 +62,7 @@ export default function MyRequests() {
   const currentReqs = tab === "attendance" ? attendanceReqs : leaveReqs;
   const statusFiltered = filter === "all" ? currentReqs : currentReqs.filter((r) => r.status === filter);
 
-  const filtered = useMemo(() => {
+  const filteredAll = useMemo(() => {
     const q = query.toLowerCase();
     if (!q) return statusFiltered;
     return statusFiltered.filter((r) => {
@@ -67,6 +72,10 @@ export default function MyRequests() {
       return fields.some((v) => String(v || "").toLowerCase().includes(q));
     });
   }, [statusFiltered, query, tab]);
+
+  const filteredTotal = filteredAll.length;
+  const totalPages = Math.max(1, Math.ceil(filteredTotal / PAGE_SIZE));
+  const filtered = filteredAll.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const allPending = [...attendanceReqs, ...leaveReqs].filter((r) => r.status === "pending").length;
 
@@ -145,6 +154,7 @@ export default function MyRequests() {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} totalPages={totalPages} total={filteredTotal} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="requests" />
         </div>
       ) : (
         <div className="panel report-panel">
@@ -179,6 +189,7 @@ export default function MyRequests() {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} totalPages={totalPages} total={filteredTotal} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="leave requests" />
         </div>
       )}
     </div>

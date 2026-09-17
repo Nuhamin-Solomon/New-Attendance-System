@@ -10,6 +10,7 @@ const paths = {
   "arrow-right": "M5 12h14m-6-6 6 6-6 6",
   "arrow-left": "M19 12H5m6 6-6-6 6-6",
   building: "M3 21h18M5 21V5l7-3 7 3v16M9 8h.01M15 8h.01M9 12h.01M15 12h.01M9 16h.01M15 16h.01",
+  home: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10",
   clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Zm0-16v6l4 2",
   database: "M20 6c0 2.2-3.6 4-8 4s-8-1.8-8-4 3.6-4 8-4 8 1.8 8 4Zm0 0v6c0 2.2-3.6 4-8 4s-8-1.8-8-4V6m16 6v6c0 2.2-3.6 4-8 4s-8-1.8-8-4v-6",
   plus: "M12 5v14M5 12h14",
@@ -34,6 +35,7 @@ const paths = {
   "chevron-down": "M6 9l6 6 6-6",
   "chevron-up": "M18 15l-6-6-6 6",
   refresh: "M23 4v6h-6M1 20v-6h6M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15",
+  alert: "M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0ZM12 9v4m0 4h.01",
 };
 
 export default function Icon({ name, size = 18, stroke = true }) {

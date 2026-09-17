@@ -1,6 +1,9 @@
 import { useEffect, useState, useMemo } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
+import Pagination from "../components/Pagination";
+
+const PAGE_SIZE = 25;
 
 export default function Leave() {
   const [leaves, setLeaves] = useState([]);
@@ -11,6 +14,7 @@ export default function Leave() {
   const [editId, setEditId] = useState(null);
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
 
   const load = () => {
@@ -21,6 +25,7 @@ export default function Leave() {
     ]).then(([lRes, tRes, bRes]) => { setLeaves(lRes.data); setTypes(tRes.data); setBalances(bRes.data); }).catch(() => {}).finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => { setPage(1); }, [filter, query]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -61,13 +66,17 @@ export default function Leave() {
 
   const statusFiltered = filter === "all" ? leaves : leaves.filter((l) => l.status === filter);
 
-  const filtered = useMemo(() => {
+  const filteredAll = useMemo(() => {
     const q = query.toLowerCase();
     if (!q) return statusFiltered;
     return statusFiltered.filter((l) =>
       [l.leave_type_name, l.reason, l.status].some((v) => String(v || "").toLowerCase().includes(q))
     );
   }, [statusFiltered, query]);
+
+  const filteredTotal = filteredAll.length;
+  const totalPages = Math.max(1, Math.ceil(filteredTotal / PAGE_SIZE));
+  const filtered = filteredAll.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const statusBadge = (s) => {
     const map = { approved: "green", rejected: "red", pending: "orange", manager_approved: "blue", cancelled: "gray", recalled: "gray" };
@@ -164,6 +173,7 @@ export default function Leave() {
             </tbody>
           </table>
         </div>
+        <Pagination page={page} totalPages={totalPages} total={filteredTotal} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="leave requests" />
       </div>
     </div>
   );

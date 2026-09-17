@@ -4,8 +4,11 @@ import Icon from "../components/Icon";
 import ReportHeader from "../components/ReportHeader";
 import SearchBar from "../components/SearchBar";
 import DepartmentFilter from "../components/DepartmentFilter";
+import Pagination from "../components/Pagination";
 import { matchesSearch } from "../utils/search";
 import { buildReportParams, activeFilterLabel } from "../utils/reportFilters";
+
+const PAGE_SIZE = 25;
 
 function getWeekStart(dateStr) {
   const d = new Date(dateStr + "T12:00:00Z");
@@ -29,16 +32,21 @@ export default function WeeklyReport() {
   const [startDate, setStartDate] = useState(() => getWeekStart(new Date().toISOString().split("T")[0]));
   const [endDate, setEndDate] = useState(() => getWeekEnd(new Date().toISOString().split("T")[0]));
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     setLoading(true);
+    setError("");
     const params = buildReportParams({ start_date: startDate, end_date: endDate }, { departments: filterDepts });
     API.get("/reports/weekly", { params })
       .then((r) => setData(r.data))
-      .catch(() => {})
+      .catch((err) => setError(err.response?.data?.error || "Unable to load the weekly report. Please retry."))
       .finally(() => setLoading(false));
   }, [startDate, endDate, filterDepts]);
+
+  useEffect(() => { setPage(1); }, [query, filterDepts]);
 
   const handleApplyDepartments = (departments) => {
     setFilterDepts(departments);
@@ -52,6 +60,7 @@ export default function WeeklyReport() {
   const days = data?.days || [];
   const employees = data?.employees || [];
   const filteredEmployees = useMemo(() => employees.filter((e) => matchesSearch(e, query, ["full_name", "card_id", "department"])), [employees, query]);
+  const pageEmployees = filteredEmployees.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleExport = async () => {
     if (!data) return;
@@ -123,6 +132,7 @@ export default function WeeklyReport() {
         <DepartmentFilter selectedDepartments={filterDepts} onApply={handleApplyDepartments} />
         <SearchBar value={query} onChange={setQuery} />
       </div>
+      {error && <div className="alert alert-error" role="alert">{error}</div>}
 
       <div className="panel report-panel">
         <div className="table-wrap report-table-wrap">
@@ -157,9 +167,9 @@ export default function WeeklyReport() {
               {loading ? (
                 <tr><td colSpan={4 + days.length * 3 + 1} className="table-message">Loading...</td></tr>
               ) : filteredEmployees.length ? (
-                filteredEmployees.map((emp, i) => (
+                pageEmployees.map((emp, i) => (
                   <tr key={emp.employee_id}>
-                    <td className="sticky-col td-muted">{i + 1}</td>
+                    <td className="sticky-col td-muted">{(page - 1) * PAGE_SIZE + i + 1}</td>
                     <td className="sticky-col-2 td-center">{emp.card_id || emp.employee_id}</td>
                     <td className="sticky-col-3 strong-cell">{emp.full_name}</td>
                     <td className="sticky-col-4"><span className="badge badge-blue">{emp.department || "\u2014"}</span></td>
@@ -186,7 +196,10 @@ export default function WeeklyReport() {
           </table>
         </div>
         {filteredEmployees.length > 0 && (
-          <div className="table-footer">Showing {filteredEmployees.length} of {employees.length} employees | {days.length} days</div>
+          <>
+            <div className="table-footer">Showing {filteredEmployees.length} of {employees.length} employees | {days.length} days</div>
+            <Pagination page={page} totalPages={Math.max(1, Math.ceil(filteredEmployees.length / PAGE_SIZE))} total={filteredEmployees.length} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="employees" showInfo={false} />
+          </>
         )}
       </div>
     </div>

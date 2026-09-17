@@ -1,6 +1,9 @@
 import { useEffect, useState, useMemo } from "react";
 import API from "../services/api";
 import Icon from "../components/Icon";
+import Pagination from "../components/Pagination";
+
+const PAGE_SIZE = 25;
 
 export default function ApprovalQueue() {
   const [requests, setRequests] = useState([]);
@@ -8,6 +11,7 @@ export default function ApprovalQueue() {
   const [tab, setTab] = useState("requests");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
   const [commentModal, setCommentModal] = useState(null);
   const [comment, setComment] = useState("");
   const [user, setUser] = useState(null);
@@ -26,6 +30,7 @@ export default function ApprovalQueue() {
     }).catch(() => {}).finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => { setPage(1); }, [tab, query]);
 
   const canManagerAct = (r) => user && ["manager", "admin"].includes(user.role) && r.status === "pending";
   const canHRAct = (r) => user && ["hr", "admin"].includes(user.role) && r.status === "manager_approved";
@@ -78,6 +83,8 @@ export default function ApprovalQueue() {
     );
   }, [requests, query]);
 
+  const pageRequests = filteredRequests.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   const filteredLeave = useMemo(() => {
     const q = query.toLowerCase();
     if (!q) return leaveRequests;
@@ -85,6 +92,8 @@ export default function ApprovalQueue() {
       [l.employee_name, l.leave_type_name, l.reason].some((v) => String(v || "").toLowerCase().includes(q))
     );
   }, [leaveRequests, query]);
+
+  const pageLeave = filteredLeave.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="page-container">
@@ -107,7 +116,7 @@ export default function ApprovalQueue() {
               <thead><tr><th>Employee</th><th>Type</th><th>Date</th><th>Location</th><th>Reason</th><th>Stage</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody>
                 {loading ? <tr><td colSpan="8" className="table-message">Loading...</td></tr>
-                : filteredRequests.length ? filteredRequests.map((r) => (
+                : filteredRequests.length ? pageRequests.map((r) => (
                   <tr key={r.id}>
                     <td className="strong-cell">{r.employee_name}</td>
                     <td><span className="badge badge-blue">{r.request_type.replace(/_/g, " ")}</span></td>
@@ -134,6 +143,7 @@ export default function ApprovalQueue() {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} totalPages={Math.max(1, Math.ceil(filteredRequests.length / PAGE_SIZE))} total={filteredRequests.length} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="requests" showInfo={false} />
         </div>
       )}
 
@@ -144,7 +154,7 @@ export default function ApprovalQueue() {
               <thead><tr><th>Employee</th><th>Type</th><th>Start</th><th>End</th><th>Reason</th><th>Stage</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody>
                 {loading ? <tr><td colSpan="8" className="table-message">Loading...</td></tr>
-                : filteredLeave.length ? filteredLeave.map((l) => (
+                : filteredLeave.length ? pageLeave.map((l) => (
                   <tr key={l.id}>
                     <td className="strong-cell">{l.employee_name}</td>
                     <td><span className="badge badge-blue">{l.leave_type_name}</span></td>
@@ -171,6 +181,7 @@ export default function ApprovalQueue() {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} totalPages={Math.max(1, Math.ceil(filteredLeave.length / PAGE_SIZE))} total={filteredLeave.length} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="leave requests" showInfo={false} />
         </div>
       )}
 

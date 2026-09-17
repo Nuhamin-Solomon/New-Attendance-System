@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const { buildEmployeeFilter } = require("../utils/departmentFilter");
 const { computeTotalHours } = require("../services/attendanceTime");
+const { getAttendanceRules, classifyAttendance } = require("../services/attendanceRules");
 const { workingDayKeys: getWorkingDayKeys, getWorkingDays } = require("../services/workingDays");
 
 function dateKey(value) {
@@ -160,7 +161,7 @@ exports.searchEmployees = async (req, res) => {
       params.push(`%${search}%`);
     }
 
-    if (conditions.length > 0) query += " WHERE " + conditions.join(" AND ");
+    if (conditions.length > 0) query += " AND " + conditions.join(" AND ");
     query += " ORDER BY full_name LIMIT 50";
 
     const result = await pool.query(query, params);
@@ -171,6 +172,7 @@ exports.searchEmployees = async (req, res) => {
 };
 
 async function computeEmployeeSummary(employee, startKey, endKey) {
+  const rules = await getAttendanceRules();
   const workingDayKeys = await getWorkingDayKeys(startKey, endKey);
   const totalWorkingDays = workingDayKeys.length;
 
@@ -205,25 +207,27 @@ async function computeEmployeeSummary(employee, startKey, endKey) {
   const approvedSet = new Set(approvedResult.rows.map((r) => dateKey(r.date)));
   const leaveSet = new Set(leaveResult.rows.map((r) => dateKey(r.date)));
 
-  let presentDays = 0, missingCheckout = 0, approvedDays = 0, leaveDays = 0, totalHours = 0;
+  let presentDays = 0, missingCheckout = 0, approvedDays = 0, leaveDays = 0, lateArrivals = 0, totalHours = 0;
   const days = [];
 
   for (const dayKey of workingDayKeys) {
     const [yd, md, dd] = dayKey.split("-").map(Number);
     const dayName = new Date(Date.UTC(yd, md - 1, dd)).toLocaleDateString("en-US", { weekday: "long" });
     const log = logMap[dayKey];
-    let status;
-    if (log) {
-      totalHours += computeTotalHours(log.first_in, log.last_out);
-      if (parseInt(log.scan_count, 10) <= 1) { missingCheckout++; status = "missing_checkout"; }
-      else { presentDays++; status = "present"; }
-    } else if (approvedSet.has(dayKey)) {
-      approvedDays++; status = "approved";
-    } else if (leaveSet.has(dayKey)) {
-      leaveDays++; status = "leave";
-    } else {
-      status = "absent";
-    }
+    const classification = classifyAttendance({
+      firstIn: log?.first_in,
+      lastOut: log?.last_out,
+      scanCount: log?.scan_count,
+      rules,
+      approvedStatus: !log && (approvedSet.has(dayKey) ? "approved" : leaveSet.has(dayKey) ? "leave" : null),
+    });
+    const status = classification.status === "present_incomplete" ? "missing_checkout" : classification.status;
+    totalHours += classification.totalHours;
+    if (status === "present") presentDays++;
+    else if (status === "missing_checkout") missingCheckout++;
+    else if (status === "approved") approvedDays++;
+    else if (status === "leave" || status === "on_leave") leaveDays++;
+    if (classification.isLate) lateArrivals++;
     days.push({ date: dayKey, day: dayName, status });
   }
 
@@ -240,6 +244,7 @@ async function computeEmployeeSummary(employee, startKey, endKey) {
     missing_checkout: missingCheckout,
     approved_days: approvedDays,
     leave_days: leaveDays,
+    late_arrivals: lateArrivals,
     total_hours: Math.round(totalHours * 100) / 100,
   };
 }

@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../services/api";
 import Icon from "../components/Icon";
+import Pagination from "../components/Pagination";
 import { useAuth } from "../context/AuthContext";
+
+const PAGE_SIZE = 25;
 
 const initials = (name = "") => name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase() || "?";
 
@@ -73,6 +76,9 @@ function SearchableSelect({ items, value, onChange, placeholder, searchFields, d
 
 export default function Employees() {
   const [employees, setEmployees] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [selectedDepts, setSelectedDepts] = useState([]);
   const [deptOpen, setDeptOpen] = useState(false);
@@ -89,16 +95,34 @@ export default function Employees() {
   const [hrUsers, setHrUsers] = useState([]);
   const [saving, setSaving] = useState(false);
 
-  const load = () => {
-    Promise.all([
-      API.get("/employees"),
-      API.get("/employees/departments"),
-    ]).then(([empRes, deptRes]) => {
-      setEmployees(empRes.data);
+  const fetchEmployees = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = { page, limit: PAGE_SIZE };
+      const q = query.trim();
+      if (q) params.search = q;
+      if (statusFilter !== "all") params.status = statusFilter;
+      if (selectedDepts.length) params.department = selectedDepts.join(",");
+      const [empRes, deptRes] = await Promise.all([
+        API.get("/employees", { params }),
+        API.get("/employees/departments"),
+      ]);
+      const { data, total: t, totalPages: tp } = empRes.data;
+      setEmployees(data || []);
+      setTotal(t || 0);
+      setTotalPages(tp || 1);
       setDepartments(deptRes.data);
-    }).catch(() => {}).finally(() => setLoading(false));
-  };
-  useEffect(() => { load(); }, []);
+      if (page > (tp || 1)) setPage(tp || 1);
+    } catch (e) {
+    } finally {
+      setLoading(false);
+    }
+  }, [page, query, selectedDepts, statusFilter]);
+
+  useEffect(() => {
+    const t = setTimeout(() => fetchEmployees(), query.trim() ? 250 : 0);
+    return () => clearTimeout(t);
+  }, [fetchEmployees]);
 
   useEffect(() => {
     if (editEmp && editForm.department) {
@@ -131,7 +155,7 @@ export default function Employees() {
         hr_id: editForm.hr_id ? parseInt(editForm.hr_id) : null,
       });
       setEditEmp(null);
-      load();
+      fetchEmployees();
     } catch (err) {
       alert(err.response?.data?.error || "Failed to save");
     } finally {
@@ -140,38 +164,42 @@ export default function Employees() {
   };
 
   const toggleDept = (dept) => {
+    setPage(1);
     setSelectedDepts((prev) => (prev.includes(dept) ? prev.filter((d) => d !== dept) : [...prev, dept]));
   };
 
-  const filtered = useMemo(() => {
-    return employees.filter((e) => {
-      const matchQuery = !query || [e.full_name, e.department, e.card_id, e.position, e.manager_name, e.hr_name]
-        .some((v) => String(v || "").toLowerCase().includes(query.toLowerCase()));
-      const matchDept = selectedDepts.length === 0 || selectedDepts.includes(e.department);
-      const matchStatus = statusFilter === "all" || e.status === statusFilter;
-      return matchQuery && matchDept && matchStatus;
-    });
-  }, [employees, query, selectedDepts, statusFilter]);
+  const handleStatusChange = (value) => {
+    setPage(1);
+    setStatusFilter(value);
+  };
 
-  const verify = useMemo(() => {
+  const [verify, setVerify] = useState(null);
+
+  useEffect(() => {
     const q = query.trim();
-    if (!q) return null;
-    const exact = employees.filter((e) =>
-      String(e.full_name || "").toLowerCase() === q.toLowerCase() ||
-      String(e.card_id || "").toLowerCase() === q.toLowerCase()
-    );
-    if (exact.length === 1) {
-      const emp = exact[0];
-      const deptMismatch = selectedDepts.length > 0 && !selectedDepts.includes(emp.department);
-      return deptMismatch
-        ? { type: "warning", text: `${emp.full_name} found in the directory, but is assigned to ${emp.department || "no department"} \u2014 outside your selected department filter.` }
-        : { type: "success", text: `${emp.full_name} (${emp.card_id || "no card ID"}) \u2014 verified in ${emp.department || "no department assigned"}.` };
-    }
-    if (exact.length > 1) {
-      return { type: "info", text: `${exact.length} employees share that name \u2014 refine the search or check the department checklist.` };
-    }
-    return { type: "error", text: `No employee named "${q}" found in the directory.` };
-  }, [employees, query, selectedDepts]);
+    if (!q) { setVerify(null); return; }
+    let active = true;
+    const t = setTimeout(() => {
+      API.get("/employees", { params: { search: q, exact: 1 } })
+        .then((r) => {
+          if (!active) return;
+          const matches = r.data || [];
+          if (matches.length === 1) {
+            const emp = matches[0];
+            const deptMismatch = selectedDepts.length > 0 && !selectedDepts.includes(emp.department);
+            setVerify(deptMismatch
+              ? { type: "warning", text: `${emp.full_name} found in the directory, but is assigned to ${emp.department || "no department"} \u2014 outside your selected department filter.` }
+              : { type: "success", text: `${emp.full_name} (${emp.card_id || "no card ID"}) \u2014 verified in ${emp.department || "no department assigned"}.` });
+          } else if (matches.length > 1) {
+            setVerify({ type: "info", text: `${matches.length} employees share that name \u2014 refine the search or check the department checklist.` });
+          } else {
+            setVerify({ type: "error", text: `No employee named "${q}" found in the directory.` });
+          }
+        })
+        .catch(() => {});
+    }, 300);
+    return () => { active = false; clearTimeout(t); };
+  }, [query, selectedDepts]);
 
   return (
     <div className="page-container">
@@ -181,7 +209,7 @@ export default function Employees() {
           <h1>Employees</h1>
           <p>View and manage employees imported from BioTime.</p>
         </div>
-        <div className="header-count">{employees.length} people</div>
+        <div className="header-count">{total} people</div>
       </div>
 
       <div className="panel">
@@ -201,7 +229,7 @@ export default function Employees() {
                 <div className="dept-checklist">
                   <div className="dept-checklist-header">
                     <span>Filter by department</span>
-                    {selectedDepts.length > 0 && <button onClick={() => setSelectedDepts([])}>Clear all</button>}
+                    {selectedDepts.length > 0 && <button onClick={() => { setPage(1); setSelectedDepts([]); }}>Clear all</button>}
                   </div>
                   <div className="dept-checklist-scroll">
                     {departments.length ? departments.map((d) => (
@@ -224,7 +252,7 @@ export default function Employees() {
             <select
               className="form-input form-input-sm form-select-sm"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => handleStatusChange(e.target.value)}
               title="Filter by employment status"
             >
               <option value="all">All Statuses</option>
@@ -233,7 +261,7 @@ export default function Employees() {
             </select>
             <label className="search-bar">
               <Icon name="search" size={16} />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search employees" />
+              <input value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} placeholder="Search employees" />
             </label>
           </div>
         </div>
@@ -261,7 +289,7 @@ export default function Employees() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={isAdmin ? 7 : 6} className="table-message">Loading employees...</td></tr>
-              ) : filtered.length ? filtered.map((e) => (
+              ) : employees.length ? employees.map((e) => (
                 <tr key={e.id}>
                   <td className="clickable-row" onClick={() => navigate(`/employees/${e.id}`)}>
                     <div className="person-cell">
@@ -309,7 +337,9 @@ export default function Employees() {
           </table>
         </div>
 
-        {!loading && <div className="table-footer">Showing {filtered.length} of {employees.length} employees</div>}
+        {!loading && (
+          <Pagination page={page} totalPages={totalPages} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="employees" />
+        )}
       </div>
 
       {editEmp && (

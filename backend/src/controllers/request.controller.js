@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { getDepartmentFilter } = require("../utils/departmentFilter");
+const { getAttendanceRules, classifyAttendance } = require("../services/attendanceRules");
 
 const VALID_TYPES = [
   "field_duty", "official_travel", "client_visit", "training",
@@ -23,6 +24,7 @@ async function logAudit(userId, action, entityId, details) {
 }
 
 async function revertAttendanceSummary(employeeId, date) {
+  const rules = await getAttendanceRules();
   const logs = await pool.query(
     `SELECT MIN(scan_time) AS first_in, MAX(scan_time) AS last_out, COUNT(*) AS scan_count
      FROM attendance_logs
@@ -31,16 +33,13 @@ async function revertAttendanceSummary(employeeId, date) {
   );
   const l = logs.rows[0];
   if (l && parseInt(l.scan_count) > 0) {
-    const diffMs = new Date(l.last_out) - new Date(l.first_in);
-    const totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
-    const status = parseInt(l.scan_count) <= 1 ? "present_incomplete"
-      : totalHours >= 1 ? "present" : "present_incomplete";
+    const classification = classifyAttendance({ firstIn: l.first_in, lastOut: l.last_out, scanCount: l.scan_count, rules });
     await pool.query(
       `INSERT INTO attendance_summary (employee_id, date, first_in, last_out, total_hours, status, is_late, late_minutes)
-       VALUES ($1, $2, $3, $4, $5, $6, false, 0)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (employee_id, date) DO UPDATE SET
-         first_in = $3, last_out = $4, total_hours = $5, status = $6, notes = NULL, is_late = false, late_minutes = 0`,
-      [employeeId, date, l.first_in, l.last_out, totalHours, status]
+         first_in = $3, last_out = $4, total_hours = $5, status = $6, notes = NULL, is_late = $7, late_minutes = $8`,
+      [employeeId, date, l.first_in, l.last_out, classification.totalHours, classification.status, classification.isLate, classification.lateMinutes]
     );
   } else {
     await pool.query(

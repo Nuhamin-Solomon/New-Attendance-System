@@ -1,6 +1,9 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import API from "../../services/api";
 import Icon from "../../components/Icon";
+import Pagination from "../../components/Pagination";
+
+const PAGE_SIZE = 25;
 
 function SearchableSelect({ items, value, onChange, placeholder, searchFields, displayField, idField }) {
   const [search, setSearch] = useState("");
@@ -68,6 +71,9 @@ function SearchableSelect({ items, value, onChange, placeholder, searchFields, d
 }
 
 export default function Users() {
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [users, setUsers] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -77,18 +83,48 @@ export default function Users() {
   const [showPassword, setShowPassword] = useState(false);
   const [filter, setFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchInput, setSearchInput] = useState(searchQuery);
   const [loading, setLoading] = useState(true);
   const [resetModal, setResetModal] = useState(null);
   const [resetPw, setResetPw] = useState("");
 
-  const load = () => {
-    API.get("/users").then((r) => setUsers(r.data)).catch(() => {}).finally(() => setLoading(false));
-  };
-
-  useEffect(() => { load(); }, []);
   useEffect(() => {
-    API.get("/employees").then((r) => setEmployees(r.data)).catch(() => {});
-    API.get("/employees/departments").then((r) => setDepartments(r.data)).catch(() => {});
+    const id = setTimeout(() => setSearchQuery(searchInput), 250);
+    return () => clearTimeout(id);
+  }, [searchInput]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = { page, limit: PAGE_SIZE };
+      if (searchQuery) params.search = searchQuery;
+      if (filter === "active") params.is_active = "true";
+      else if (filter === "disabled") params.is_active = "false";
+      else if (filter) params.role = filter;
+      const res = await API.get("/users", { params });
+      const d = res.data;
+      if (Array.isArray(d)) {
+        const start = (page - 1) * PAGE_SIZE;
+        setUsers(d.slice(start, start + PAGE_SIZE));
+        setTotal(d.length);
+        setTotalPages(Math.max(1, Math.ceil(d.length / PAGE_SIZE)));
+      } else {
+        setUsers(d.data || []);
+        setTotal(d.total || 0);
+        setTotalPages(d.totalPages || 1);
+      }
+    } catch {
+      setUsers([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, searchQuery, filter]);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [searchQuery, filter]);
+  useEffect(() => {
+    API.get("/employees").then((r) => setEmployees(Array.isArray(r.data) ? r.data : r.data.data || [])).catch(() => {});
+    API.get("/employees/departments").then((r) => setDepartments(Array.isArray(r.data) ? r.data : r.data.data || [])).catch(() => {});
   }, []);
 
   const resetForm = () => {
@@ -178,18 +214,6 @@ export default function Users() {
     const emp = employees.find((e) => e.id === empId);
     return emp ? emp.department : null;
   };
-
-  const roleFiltered = filter
-    ? users.filter((u) => u.role === filter || (filter === "active" ? u.is_active : filter === "disabled" ? !u.is_active : true))
-    : users;
-
-  const filteredUsers = useMemo(() => {
-    const q = searchQuery.toLowerCase();
-    if (!q) return roleFiltered;
-    return roleFiltered.filter((u) =>
-      [u.username, u.full_name, u.email, u.role, u.employee_name, u.department].some((v) => String(v || "").toLowerCase().includes(q))
-    );
-  }, [roleFiltered, searchQuery]);
 
   return (
     <div className="page-container">
@@ -285,8 +309,8 @@ export default function Users() {
           ))}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{filteredUsers.length} users</span>
-          <label className="search-bar"><Icon name="search" size={16} /><input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search users..." /></label>
+          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{total} users</span>
+          <label className="search-bar"><Icon name="search" size={16} /><input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Search users..." /></label>
         </div>
       </div>
 
@@ -299,8 +323,8 @@ export default function Users() {
               </tr>
             </thead>
             <tbody>
-              {loading ? <tr><td colSpan="9" className="table-message">Loading...</td></tr>
-              : filteredUsers.map((u) => (
+              {loading ? <tr><td colSpan={9} className="table-message">Loading...</td></tr>
+              : users.map((u) => (
                 <tr key={u.id}>
                   <td className="strong-cell">{u.username}</td>
                   <td className="td-muted">{u.full_name || "\u2014"}</td>
@@ -322,12 +346,13 @@ export default function Users() {
                   </td>
                 </tr>
               ))}
-              {!loading && filteredUsers.length === 0 && (
-                <tr><td colSpan="9" className="table-message">No users found.</td></tr>
+              {!loading && users.length === 0 && (
+                <tr><td colSpan={9} className="table-message">No users found.</td></tr>
               )}
             </tbody>
           </table>
         </div>
+        <Pagination page={page} totalPages={totalPages} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="users" />
       </div>
 
       {resetModal && (

@@ -17,8 +17,9 @@ const EMP_LIST_JOINS = `
 
 router.get("/", authenticate, async (req, res) => {
   try {
-    const { department, search, status } = req.query;
-    let query = `SELECT ${EMP_LIST_SELECT} FROM employees e ${EMP_LIST_JOINS}`;
+    const { department, search, status, exact } = req.query;
+    const page = req.query.page ? parseInt(req.query.page, 10) : null;
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : null;
     const params = [];
     const conditions = [];
 
@@ -36,14 +37,47 @@ router.get("/", authenticate, async (req, res) => {
       }
     }
 
-    if (department) { conditions.push(`e.department = $${params.length + 1}`); params.push(department); }
+    if (department) {
+      const depts = String(department).split(",").filter(Boolean);
+      if (depts.length > 0) {
+        conditions.push(`e.department = ANY($${params.length + 1})`);
+        params.push(depts);
+      }
+    }
     if (status) { conditions.push(`e.status = $${params.length + 1}`); params.push(status); }
-    if (search) { conditions.push(`(e.full_name ILIKE $${params.length + 1} OR e.card_id ILIKE $${params.length + 1})`); params.push(`%${search}%`); }
+    if (exact === "1" || exact === "true") {
+      if (search) {
+        conditions.push(`(LOWER(e.full_name) = LOWER($${params.length + 1}) OR LOWER(e.card_id) = LOWER($${params.length + 1}))`);
+        params.push(search);
+      }
+    } else if (search) {
+      conditions.push(
+        `(e.full_name ILIKE $${params.length + 1} OR e.card_id ILIKE $${params.length + 1} ` +
+        `OR e.department ILIKE $${params.length + 1} ` +
+        `OR COALESCE(e.position, '') ILIKE $${params.length + 1} ` +
+        `OR COALESCE(mgr.full_name, '') ILIKE $${params.length + 1} ` +
+        `OR COALESCE(hr_emp.full_name, '') ILIKE $${params.length + 1})`
+      );
+      params.push(`%${search}%`);
+    }
 
-    if (conditions.length > 0) query += " WHERE " + conditions.join(" AND ");
-    query += " ORDER BY e.id";
+    const whereClause = conditions.length > 0 ? " WHERE " + conditions.join(" AND ") : "";
+    const base = `FROM employees e ${EMP_LIST_JOINS}${whereClause}`;
 
-    const result = await pool.query(query, params);
+    if (page && page > 0 && limit && limit > 0) {
+      const countRes = await pool.query(`SELECT COUNT(*)::int AS total ${base}`, params);
+      const total = countRes.rows[0].total;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      const safePage = Math.min(page, totalPages);
+      const offset = (safePage - 1) * limit;
+      const dataRes = await pool.query(
+        `SELECT ${EMP_LIST_SELECT} ${base} ORDER BY e.id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, limit, offset]
+      );
+      return res.json({ data: dataRes.rows, total, page: safePage, limit, totalPages });
+    }
+
+    const result = await pool.query(`SELECT ${EMP_LIST_SELECT} ${base} ORDER BY e.id`, params);
     res.json(result.rows);
   } catch (error) {
     console.log(error);

@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const { getDepartmentFilter } = require("../utils/departmentFilter");
 const { getWorkingDays } = require("../services/workingDays");
+const { getAttendanceRules, classifyAttendance } = require("../services/attendanceRules");
 
 async function logAudit(userId, action, entityId, details) {
   await pool.query(
@@ -44,6 +45,7 @@ async function markLeaveDates(employeeId, startDate, endDate) {
 }
 
 async function revertLeaveDates(employeeId, startDate, endDate) {
+  const rules = await getAttendanceRules();
   const workingDays = await getWorkingDays();
   const s = new Date(startDate);
   const e = new Date(endDate);
@@ -60,15 +62,12 @@ async function revertLeaveDates(employeeId, startDate, endDate) {
       );
       const l = logs.rows[0];
       if (l && parseInt(l.scan_count) > 0) {
-        const diffMs = new Date(l.last_out) - new Date(l.first_in);
-        const totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
-        const status = parseInt(l.scan_count) <= 1 ? "present_incomplete"
-          : totalHours >= 1 ? "present" : "present_incomplete";
+        const classification = classifyAttendance({ firstIn: l.first_in, lastOut: l.last_out, scanCount: l.scan_count, rules });
         await pool.query(
           `INSERT INTO attendance_summary (employee_id, date, first_in, last_out, total_hours, status, is_late, late_minutes)
-           VALUES ($1, $2, $3, $4, $5, $6, false, 0)
-           ON CONFLICT (employee_id, date) DO UPDATE SET first_in = $3, last_out = $4, total_hours = $5, status = $6, notes = NULL`,
-          [employeeId, dateStr, l.first_in, l.last_out, totalHours, status]
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (employee_id, date) DO UPDATE SET first_in = $3, last_out = $4, total_hours = $5, status = $6, notes = NULL, is_late = $7, late_minutes = $8`,
+           [employeeId, dateStr, l.first_in, l.last_out, classification.totalHours, classification.status, classification.isLate, classification.lateMinutes]
         );
       } else {
         await pool.query(

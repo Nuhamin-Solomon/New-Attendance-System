@@ -20,6 +20,7 @@ const navConfig = [
   { id: "monthly-summary", path: "/monthly-summary", label: "Monthly Summary", icon: "bar", roles: ["admin", "hr", "manager"] },
   { id: "department-report", path: "/department-report", label: "Department Report", icon: "building", roles: ["admin", "hr", "manager"] },
   { id: "notifications", path: "/notifications", label: "Notifications", icon: "bell", roles: ["admin", "hr", "manager", "employee"] },
+  { id: "system-admin", path: "/system-admin", label: "System Administrator", icon: "shield", roles: ["admin"] },
   { id: "admin-users", path: "/admin/users", label: "User Management", icon: "settings", roles: ["admin"] },
   { id: "admin-departments", path: "/admin/departments", label: "Departments", icon: "building", roles: ["admin"] },
   { id: "admin-roles", path: "/admin/roles", label: "Roles", icon: "shield", roles: ["admin"] },
@@ -45,6 +46,7 @@ const sectionMap = {
   "monthly-summary": "Reports",
   "department-report": "Reports",
   notifications: "System",
+  "system-admin": "Administration",
   "admin-users": "Administration",
   "admin-departments": "Administration",
   "admin-roles": "Administration",
@@ -76,7 +78,14 @@ export default function Sidebar() {
   return (
     <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`}>
       <div className="sidebar-logo">
-        <div className="brand-mark"><Icon name="building" size={20} /></div>
+        <button
+          className="brand-mark brand-mark-btn"
+          onClick={() => { if (location.pathname !== "/dashboard") navigate("/dashboard"); }}
+          title="Home"
+          aria-label="Go to Attendance Dashboard"
+        >
+          <Icon name="home" size={20} />
+        </button>
         {!collapsed && (
           <div>
             <h1>Kifiya</h1>

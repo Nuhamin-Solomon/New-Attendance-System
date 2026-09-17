@@ -4,8 +4,11 @@ import Icon from "../../components/Icon";
 import ReportHeader from "../../components/ReportHeader";
 import SearchBar from "../../components/SearchBar";
 import EmployeeFilter from "../../components/EmployeeFilter";
+import Pagination from "../../components/Pagination";
 import { matchesSearch } from "../../utils/search";
 import { buildReportParams, activeFilterLabel } from "../../utils/reportFilters";
+
+const PAGE_SIZE = 25;
 
 export default function DepartmentReport() {
   const [data, setData] = useState(null);
@@ -19,6 +22,7 @@ export default function DepartmentReport() {
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
 
   const hasFilter = filterDepts.length > 0 || filterEmpIds.length > 0;
 
@@ -31,6 +35,8 @@ export default function DepartmentReport() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [filterDepts, filterEmpIds, startDate, endDate]);
+
+  useEffect(() => { setPage(1); }, [query, filterDepts, filterEmpIds]);
 
   const handleApplyFilter = ({ departments, employeeIds }) => {
     setFilterDepts(departments);
@@ -65,6 +71,7 @@ export default function DepartmentReport() {
 
   const employees = data?.employees || [];
   const filteredEmployees = useMemo(() => employees.filter((e) => matchesSearch(e, query, ["full_name", "card_id", "department"])), [employees, query]);
+  const pageEmployees = filteredEmployees.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleExport = async () => {
     if (!data) return;
@@ -181,12 +188,12 @@ export default function DepartmentReport() {
                   {loading ? (
                     <tr><td colSpan={3 + days.length * 3 + 1} className="table-message">Loading...</td></tr>
                   ) : filteredEmployees.length ? (
-                    filteredEmployees.map((emp, i) => {
+                    pageEmployees.map((emp, i) => {
                       const recMap = {};
                       for (const rec of (emp.records || [])) recMap[rec.date] = rec;
                       return (
                         <tr key={emp.employee_id}>
-                          <td className="sticky-col td-muted">{i + 1}</td>
+                          <td className="sticky-col td-muted">{(page - 1) * PAGE_SIZE + i + 1}</td>
                           <td className="sticky-col-2 td-center">{emp.card_id || emp.employee_id}</td>
                           <td className="sticky-col-3 strong-cell">{emp.full_name}</td>
                           {days.map((d) => {
@@ -213,7 +220,10 @@ export default function DepartmentReport() {
               </table>
             </div>
             {filteredEmployees.length > 0 && (
-              <div className="table-footer">Showing {filteredEmployees.length} of {employees.length} employees | {days.length} days | Attendance Rate: {attRate}%</div>
+              <>
+                <div className="table-footer">Showing {filteredEmployees.length} of {employees.length} employees | {days.length} days | Attendance Rate: {attRate}%</div>
+                <Pagination page={page} totalPages={Math.max(1, Math.ceil(filteredEmployees.length / PAGE_SIZE))} total={filteredEmployees.length} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="employees" showInfo={false} />
+              </>
             )}
           </div>
         </>

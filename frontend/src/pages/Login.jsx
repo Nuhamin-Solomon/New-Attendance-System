@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Icon from "../components/Icon";
 
@@ -69,7 +70,7 @@ export default function Login() {
             <label className="checkbox-label">
               <input type="checkbox" defaultChecked /> Remember Me
             </label>
-            <a href="/forgot-password" className="forgot-link">Forgot Password?</a>
+            <Link to="/forgot-password" className="forgot-link">Forgot Password?</Link>
           </div>
 
           <button className="login-btn" type="submit" disabled={loading}>

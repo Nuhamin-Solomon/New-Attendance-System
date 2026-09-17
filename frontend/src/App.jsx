@@ -23,6 +23,7 @@ import MonthlyReportPage from "./pages/MonthlyReport";
 import MonthlySummaryPage from "./pages/MonthlySummary";
 import DailyReportPage from "./pages/DailyReport";
 import DepartmentReportPage from "./pages/Reports/DepartmentReport";
+import SystemAdminPage from "./pages/admin/SystemAdmin";
 import UsersPage from "./pages/admin/Users";
 import DepartmentManagementPage from "./pages/admin/DepartmentManagement";
 import RolesPage from "./pages/admin/Roles";
@@ -47,6 +48,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ForgotPassword />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
@@ -94,6 +96,7 @@ function AppRoutes() {
               <Route path="/monthly-summary" element={<ProtectedRoute roles={["admin", "hr", "manager"]}><MonthlySummaryPage /></ProtectedRoute>} />
               <Route path="/department-report" element={<ProtectedRoute roles={["admin", "hr", "manager"]}><DepartmentReportPage /></ProtectedRoute>} />
               <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
+              <Route path="/system-admin" element={<ProtectedRoute roles={["admin"]}><SystemAdminPage /></ProtectedRoute>} />
               <Route path="/admin/users" element={<ProtectedRoute roles={["admin"]}><UsersPage /></ProtectedRoute>} />
               <Route path="/admin/departments" element={<ProtectedRoute roles={["admin"]}><DepartmentManagementPage /></ProtectedRoute>} />
               <Route path="/admin/roles" element={<ProtectedRoute roles={["admin"]}><RolesPage /></ProtectedRoute>} />

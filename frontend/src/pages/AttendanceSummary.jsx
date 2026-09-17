@@ -3,9 +3,12 @@ import API from "../services/api";
 import Icon from "../components/Icon";
 import SearchBar from "../components/SearchBar";
 import DepartmentFilter from "../components/DepartmentFilter";
+import Pagination from "../components/Pagination";
 import { formatBioTimeDateValue, formatBioTimeTimeValue } from "../utils/time";
 import { matchesSearch } from "../utils/search";
 import { buildReportParams, activeFilterLabel } from "../utils/reportFilters";
+
+const PAGE_SIZE = 25;
 
 const statusBadge = (s) => {
   if (s === "present_partial") s = "present";
@@ -92,6 +95,7 @@ export default function AttendanceSummary() {
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState("");
   const [expanded, setExpanded] = useState(null);
+  const [page, setPage] = useState(1);
 
   const [empQuery, setEmpQuery] = useState("");
   const [empResults, setEmpResults] = useState([]);
@@ -108,6 +112,8 @@ export default function AttendanceSummary() {
     API.get("/summary", { params }).then((r) => setRows(r.data)).catch(() => {}).finally(() => setLoading(false));
   }, [filterDepts, dateFrom, dateTo]);
 
+  useEffect(() => { setPage(1); }, [filterDepts, dateFrom, dateTo, category, query]);
+
   const handleApplyDepartments = (departments) => {
     setFilterDepts(departments);
   };
@@ -123,7 +129,7 @@ export default function AttendanceSummary() {
     return () => clearTimeout(t);
   }, [empQuery, selectedEmployee]);
 
-  const { periodStart, periodEnd } = (() => {
+  const { start: periodStart, end: periodEnd } = (() => {
     if (periodMode === "monthly") return monthRange(periodMonth);
     if (periodMode === "daily") return { start: periodDate, end: periodDate };
     return weekRange(periodDate);
@@ -176,6 +182,8 @@ export default function AttendanceSummary() {
     if (query.trim()) list = list.filter((e) => matchesSearch(e, query, ["full_name", "card_id", "department"]));
     return list;
   }, [overview, category, query]);
+
+  const pageList = categoryList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const isSingleDay = dateFrom === dateTo;
   const rangeLabel = isSingleDay
@@ -310,7 +318,7 @@ export default function AttendanceSummary() {
             <thead><tr><th style={{ width: 30 }}></th><th>Employee</th><th>Department</th><th>Attendance</th><th style={{ width: 90 }}></th></tr></thead>
             <tbody>
               {loading ? <tr><td colSpan="5" className="table-message">Loading...</td></tr>
-              : categoryList.length ? categoryList.map((e) => (
+              : categoryList.length ? pageList.map((e) => (
                 <Fragment key={e.employee_id}>
                   <tr className="clickable-row" onClick={() => setExpanded(expanded === e.employee_id ? null : e.employee_id)}>
                     <td className="td-center"><Icon name={expanded === e.employee_id ? "chevron-up" : "chevron-down"} size={14} /></td>
@@ -363,7 +371,12 @@ export default function AttendanceSummary() {
             </tbody>
           </table>
         </div>
-        {!loading && <div className="table-footer">Showing {categoryList.length} of {overview.length} employees | Period: {rangeLabel}</div>}
+        {!loading && (
+          <>
+            <div className="table-footer">Showing {categoryList.length} of {overview.length} employees | Period: {rangeLabel}</div>
+            <Pagination page={page} totalPages={Math.max(1, Math.ceil(categoryList.length / PAGE_SIZE))} total={categoryList.length} pageSize={PAGE_SIZE} onPageChange={setPage} itemLabel="employees" showInfo={false} />
+          </>
+        )}
       </div>
     </div>
   );

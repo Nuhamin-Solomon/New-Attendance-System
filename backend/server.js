@@ -26,7 +26,14 @@ const {
 const app = express();
 
 // Allow requests from any frontend
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:5173")
+  .split(",").map((origin) => origin.trim()).filter(Boolean);
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("Origin not allowed by CORS"));
+  },
+}));
 
 // Parse JSON
 app.use(express.json({ limit: "10mb" }));
@@ -57,10 +64,20 @@ app.get("/", (req, res) => {
 });
 
 // Health Check
-app.get("/api/health", (req, res) => {
+app.get("/api/health", async (req, res) => {
+  const pool = require("./src/config/db");
+  let db = false;
+  try {
+    const result = await pool.query("SELECT NOW() AS now");
+    db = result.rows.length > 0;
+  } catch (e) {
+    db = false;
+  }
   res.json({
     ok: true,
     uptime: process.uptime(),
+    db,
+    env: process.env.NODE_ENV || "development",
   });
 });
 
