@@ -78,3 +78,6 @@ export function formatBioTimeDateTimeValue(value) {
 }
 
 export const parseBioTimeTimestamp = parseBioTimeParts;
+
+export const getGreeting = (date = new Date()) =>
+  date.getHours() < 12 ? "Good Morning" : "Good Afternoon";

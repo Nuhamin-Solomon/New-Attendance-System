@@ -7,6 +7,7 @@ import DepartmentFilter from "../components/DepartmentFilter";
 import Pagination from "../components/Pagination";
 import { formatBioTimeDateValue } from "../utils/time";
 import { buildReportParams, activeFilterLabel } from "../utils/reportFilters";
+import { holidayBadgeText, formatHours } from "../utils/holidays";
 
 const PAGE_SIZE = 25;
 
@@ -22,9 +23,10 @@ function getMonthEnd() {
   return d.toISOString().split("T")[0];
 }
 
-const statusBadge = (status) => {
-  const map = { present: "green", late: "orange", missing_checkout: "orange", approved: "green", leave: "purple", absent: "red" };
-  return <span className={`badge badge-${map[status] || "blue"}`}>{(status || "").replace(/_/g, " ")}</span>;
+const statusBadge = (status, rec) => {
+  const map = { present: "green", late: "orange", missing_checkout: "orange", approved: "green", leave: "purple", absent: "red", holiday: "gray", half_day: "cyan" };
+  const text = holidayBadgeText(status, rec);
+  return <span className={`badge badge-${map[status] || "blue"}`}>{text}</span>;
 };
 
 const fmtMonth = (start) =>
@@ -247,9 +249,9 @@ export default function MonthlySummary() {
                                       <td className="td-muted">{d.day}</td>
                                       <td className="td-center">{d.check_in || "\u2014"}{d.is_late ? <span className="badge badge-orange" style={{ marginLeft: 6 }}>Late</span> : ""}</td>
                                       <td className="td-center">{d.check_out || "\u2014"}{d.early_departure ? <span className="badge badge-orange" style={{ marginLeft: 6 }}>Early</span> : ""}</td>
-                                      <td className="td-center">{d.total_hours ? d.total_hours.toFixed(1) : "\u2014"}</td>
+                                      <td className="td-center">{d.total_hours ? formatHours(d.total_hours, d.status) : "\u2014"}</td>
                                       <td className="td-center">{d.overtime ? `${d.overtime.toFixed(1)}h` : "\u2014"}</td>
-                                      <td className="td-center">{statusBadge(displayStatus)}</td>
+                                      <td className="td-center">{statusBadge(displayStatus, d)}</td>
                                     </tr>
                                   );
                                 })}

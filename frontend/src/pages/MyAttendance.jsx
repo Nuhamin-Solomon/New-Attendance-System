@@ -5,13 +5,14 @@ import SearchBar from "../components/SearchBar";
 import Pagination from "../components/Pagination";
 import { formatBioTimeDateValue, formatBioTimeTimeValue } from "../utils/time";
 import { matchesSearch } from "../utils/search";
+import { holidayBadgeText, formatHours } from "../utils/holidays";
 
 const PAGE_SIZE = 25;
 
-const statusBadge = (s) => {
+const statusBadge = (s, rec) => {
   if (s === "present_partial") s = "present";
-  const map = { present: "green", late: "orange", absent: "red", leave: "purple", field_duty: "teal", approved: "green", present_incomplete: "orange" };
-  return <span className={`badge badge-${map[s] || "blue"}`}>{(s || "no data").replace(/_/g, " ")}</span>;
+  const map = { present: "green", late: "orange", absent: "red", leave: "purple", field_duty: "teal", approved: "green", present_incomplete: "orange", holiday: "gray", half_day: "cyan" };
+  return <span className={`badge badge-${map[s] || "blue"}`}>{holidayBadgeText(s, rec)}</span>;
 };
 
 export default function MyAttendance() {
@@ -172,8 +173,8 @@ export default function MyAttendance() {
                     <td className="strong-cell">{formatBioTimeDateValue(r.date)}</td>
                     <td className="td-center">{r.first_in ? formatBioTimeTimeValue(r.first_in) : "—"}</td>
                     <td className="td-center">{r.last_out ? formatBioTimeTimeValue(r.last_out) : "—"}</td>
-                    <td className="td-center"><strong>{r.total_hours ? `${parseFloat(r.total_hours).toFixed(1)}h` : "—"}</strong></td>
-                    <td className="td-center">{statusBadge(r.status)}</td>
+                    <td className="td-center"><strong>{r.total_hours ? formatHours(r.total_hours, r.status) : "—"}</strong></td>
+                    <td className="td-center">{statusBadge(r.status, r)}</td>
                     <td className="td-center">{notes && <span className="badge badge-orange">{notes}</span>}</td>
                   </tr>
                 );

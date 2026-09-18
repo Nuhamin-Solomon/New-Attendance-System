@@ -87,6 +87,8 @@ export default function Users() {
   const [loading, setLoading] = useState(true);
   const [resetModal, setResetModal] = useState(null);
   const [resetPw, setResetPw] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const id = setTimeout(() => setSearchQuery(searchInput), 250);
@@ -197,10 +199,19 @@ export default function Users() {
     catch (err) { alert(err.response?.data?.error || "Failed"); }
   };
 
-  const handleDelete = async (id, username) => {
-    if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
-    try { await API.delete(`/users/${id}`); load(); }
-    catch (err) { alert(err.response?.data?.error || "Failed"); }
+  const handleDelete = (user) => {
+    setDeleteTarget(user);
+  };
+
+  const confirmPermanentDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await API.delete(`/users/${deleteTarget.id}/permanent`);
+      setDeleteTarget(null);
+      load();
+    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    finally { setDeleting(false); }
   };
 
   const getEmployeeName = (empId) => {
@@ -341,7 +352,7 @@ export default function Users() {
                         <Icon name={u.is_active ? "x" : "check-circle"} size={14} />
                       </button>
                       <button className="btn btn-sm btn-ghost" onClick={() => handleResetPassword(u)} title="Reset Password"><Icon name="refresh" size={14} /></button>
-                      <button className="btn btn-sm btn-ghost btn-danger-text" onClick={() => handleDelete(u.id, u.username)} title="Delete"><Icon name="trash" size={14} /></button>
+                      <button className="btn btn-sm btn-danger-text" onClick={() => handleDelete(u)} title="Permanent Delete"><Icon name="trash" size={14} /></button>
                     </div>
                   </td>
                 </tr>
@@ -367,6 +378,36 @@ export default function Users() {
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setResetModal(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={confirmResetPassword}>Reset Password</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="modal-overlay" onClick={() => !deleting && setDeleteTarget(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Permanent Delete</h3>
+              <button className="btn btn-ghost" disabled={deleting} onClick={() => setDeleteTarget(null)}><Icon name="x" size={16} /></button>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 12 }}>
+                <Icon name="alert" size={20} style={{ color: "var(--danger, #dc2626)", flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <p style={{ fontWeight: 600, fontSize: 14 }}>Permanently delete this employee? This action cannot be undone.</p>
+                  <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>
+                    This will permanently remove the account for <strong>{deleteTarget.username}</strong>
+                    {deleteTarget.employee_name ? ` (${deleteTarget.employee_name})` : ""} and all of its attendance,
+                    leave, balance, and request records. Historical audit entries are preserved.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" disabled={deleting} onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button className="btn btn-danger" disabled={deleting} onClick={confirmPermanentDelete}>
+                <Icon name="trash" size={14} /> {deleting ? "Deleting..." : "Permanently Delete"}
+              </button>
             </div>
           </div>
         </div>

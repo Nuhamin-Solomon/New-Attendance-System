@@ -7,6 +7,7 @@ import DepartmentFilter from "../components/DepartmentFilter";
 import Pagination from "../components/Pagination";
 import { matchesSearch } from "../utils/search";
 import { buildReportParams, activeFilterLabel } from "../utils/reportFilters";
+import { formatHours } from "../utils/holidays";
 
 const PAGE_SIZE = 25;
 
@@ -63,6 +64,7 @@ export default function DailyReport() {
       filtered.forEach((emp, i) => {
         let remarks = "";
         if (emp.approved) remarks = emp.approved_type || "Approved";
+        else if (emp.holiday) remarks = emp.holiday_name || "Holiday";
         else if (emp.missing_checkout) remarks = "Missing Check-Out";
         else if (!emp.check_in) remarks = "No Scan";
 
@@ -84,6 +86,7 @@ export default function DailyReport() {
       rows.push(["Missing Check-Out", data?.summary?.missing_checkouts || 0]);
       rows.push(["Approved (Field Duty/Travel/etc.)", data?.summary?.approved || 0]);
       rows.push(["Absent", data?.summary?.absent || 0]);
+      rows.push(["Holiday", data?.summary?.holiday || 0]);
       rows.push(["Total Working Hours", data?.summary?.total_hours || 0]);
 
       const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -145,8 +148,10 @@ export default function DailyReport() {
                 <tr><td colSpan={8} className="table-message">Loading...</td></tr>
               ) : filteredEmployees.length ? (
                 pageEmployees.map((emp, i) => {
-                  let remarks = "";
+let remarks = "";
                   if (emp.approved) remarks = emp.approved_type || "Approved";
+else if (emp.status === "half_day") remarks = "½ half working day";
+                  else if (emp.holiday) remarks = emp.holiday_label || emp.holiday_type || emp.holiday_name || "Holiday";
                   else if (emp.missing_checkout) remarks = "Missing Check-Out";
                   else if (!emp.check_in) remarks = "No Scan";
                   return (
@@ -157,11 +162,13 @@ export default function DailyReport() {
                       <td><span className="badge badge-blue">{emp.department || "\u2014"}</span></td>
                       <td className="td-center">{emp.check_in || "\u2014"}</td>
                       <td className="td-center">{emp.check_out || "\u2014"}</td>
-                      <td className="td-center">{emp.total_hours ? `${emp.total_hours}h` : "\u2014"}</td>
+                      <td className="td-center">{emp.total_hours ? formatHours(emp.total_hours, emp.status) : "\u2014"}</td>
                       <td className="td-center">
                         {emp.missing_checkout && <span className="badge badge-orange">Missing Check-Out</span>}
+                        {emp.status === "half_day" && <span className="badge badge-cyan">½ half working day</span>}
                         {emp.approved && <span className="badge badge-purple">{emp.approved_type}</span>}
-                        {!emp.missing_checkout && !emp.approved && !emp.check_in && <span className="badge badge-red">No Scan</span>}
+                        {emp.holiday && <span className="badge badge-gray">{emp.holiday_label || emp.holiday_type || emp.holiday_name || "Holiday"}</span>}
+                        {!emp.missing_checkout && emp.status !== "half_day" && !emp.approved && !emp.holiday && !emp.check_in && <span className="badge badge-red">No Scan</span>}
                       </td>
                     </tr>
                   );

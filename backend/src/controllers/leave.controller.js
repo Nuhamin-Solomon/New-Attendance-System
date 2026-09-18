@@ -2,6 +2,7 @@ const pool = require("../config/db");
 const { getDepartmentFilter } = require("../utils/departmentFilter");
 const { getWorkingDays } = require("../services/workingDays");
 const { getAttendanceRules, classifyAttendance } = require("../services/attendanceRules");
+const { getHoliday } = require("../services/holidays");
 
 async function logAudit(userId, action, entityId, details) {
   await pool.query(
@@ -62,7 +63,8 @@ async function revertLeaveDates(employeeId, startDate, endDate) {
       );
       const l = logs.rows[0];
       if (l && parseInt(l.scan_count) > 0) {
-        const classification = classifyAttendance({ firstIn: l.first_in, lastOut: l.last_out, scanCount: l.scan_count, rules });
+        const holiday = await getHoliday(dateStr);
+        const classification = classifyAttendance({ firstIn: l.first_in, lastOut: l.last_out, scanCount: l.scan_count, rules, holiday });
         await pool.query(
           `INSERT INTO attendance_summary (employee_id, date, first_in, last_out, total_hours, status, is_late, late_minutes)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -70,11 +72,13 @@ async function revertLeaveDates(employeeId, startDate, endDate) {
            [employeeId, dateStr, l.first_in, l.last_out, classification.totalHours, classification.status, classification.isLate, classification.lateMinutes]
         );
       } else {
+        const holiday = await getHoliday(dateStr);
+        const fallbackStatus = holiday && holiday.type === "full" ? "holiday" : "absent";
         await pool.query(
           `INSERT INTO attendance_summary (employee_id, date, status)
-           VALUES ($1, $2, 'absent')
-           ON CONFLICT (employee_id, date) DO UPDATE SET status = 'absent', notes = NULL`,
-          [employeeId, dateStr]
+           VALUES ($1, $2, $3)
+           ON CONFLICT (employee_id, date) DO UPDATE SET status = $3, notes = NULL`,
+          [employeeId, dateStr, fallbackStatus]
         );
       }
     }

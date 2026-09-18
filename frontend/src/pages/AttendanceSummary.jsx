@@ -7,17 +7,21 @@ import Pagination from "../components/Pagination";
 import { formatBioTimeDateValue, formatBioTimeTimeValue } from "../utils/time";
 import { matchesSearch } from "../utils/search";
 import { buildReportParams, activeFilterLabel } from "../utils/reportFilters";
+import { holidayBadgeText } from "../utils/holidays";
 
 const PAGE_SIZE = 25;
 
-const statusBadge = (s) => {
+const statusBadge = (s, rec) => {
   if (s === "present_partial") s = "present";
   const map = {
     present: "green", late: "orange", absent: "red", leave: "purple", on_leave: "purple",
-    approved: "blue", field_duty: "teal", present_incomplete: "orange",
+    approved: "blue", field_duty: "teal", present_incomplete: "orange", holiday: "gray", half_day: "cyan",
   };
-  return <span className={`badge badge-${map[s] || "blue"}`}>{(s || "unknown").replace(/_/g, " ")}</span>;
+  const text = holidayBadgeText(s, rec);
+  return <span className={`badge badge-${map[s] || "blue"}`}>{text}</span>;
 };
+
+const holidayText = (status, rec) => holidayBadgeText(status, rec);
 
 const CAT_PRESENT = "present";
 const CAT_ABSENT = "absent";
@@ -158,7 +162,7 @@ export default function AttendanceSummary() {
       }
       const e = empMap.get(id);
       const cat = recordCategory(r);
-      e.days.push({ date: r.date, status: r.status, cat, first_in: r.first_in, last_out: r.last_out });
+      e.days.push({ date: r.date, status: r.status, cat, first_in: r.first_in, last_out: r.last_out, holiday_name: r.holiday_name, holiday_label: r.holiday_label });
       e[cat]++;
       if (r.status === "on_leave" || r.status === "leave") e.leave++;
       if (r.status === "approved") e.approved++;
@@ -257,7 +261,7 @@ export default function AttendanceSummary() {
                     <div key={d.date} className={`day-status-chip status-${d.status === "missing_checkout" || d.status === "present_incomplete" ? "missing_checkout" : d.status}`}>
                       <span className="day-status-name">{d.day}</span>
                       <span className="day-status-date">{d.date.slice(5)}</span>
-                      <span className="day-status-value">{d.status.replace("_", " ")}</span>
+                      <span className="day-status-value">{holidayText(d.status, d)}</span>
                     </div>
                   ))}
                 </div>
@@ -337,7 +341,7 @@ export default function AttendanceSummary() {
                           if (day.last_out) times.push(formatBioTimeTimeValue(day.last_out));
                           return (
                             <>
-                              {statusBadge(day.status || "absent")}
+                              {statusBadge(day.status || "absent", day)}
                               {times.length ? <span className="td-muted" style={{ marginLeft: 8 }}>{times.join(" \u2192 ")}</span> : null}
                             </>
                           );
@@ -359,7 +363,7 @@ export default function AttendanceSummary() {
                           {e.days.filter((d) => d.date).length ? e.days.filter((d) => d.date).map((d) => (
                             <div key={d.date} className={`day-status-chip status-${d.cat}`}>
                               <span className="day-status-name">{formatBioTimeDateValue(d.date)}</span>
-                              <span className="day-status-value">{d.status ? d.status.replace(/_/g, " ") : "absent"}</span>
+                              <span className="day-status-value">{holidayText(d.status, d)}</span>
                             </div>
                           )) : <span className="td-muted">No attendance records for this period.</span>}
                         </div>

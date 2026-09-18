@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import API from "../services/api";
 import Icon from "../components/Icon";
-import { formatBioTimeDateValue, formatBioTimeTimeValue } from "../utils/time";
+import { formatBioTimeDateValue, formatBioTimeTimeValue, getGreeting } from "../utils/time";
+import { holidayBadgeText, formatHours } from "../utils/holidays";
 
 export default function EmployeeDashboard() {
   const { user } = useAuth();
@@ -12,6 +13,12 @@ export default function EmployeeDashboard() {
   const [pendingLeaves, setPendingLeaves] = useState(0);
   const [recentRequests, setRecentRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [greeting, setGreeting] = useState(getGreeting());
+
+  useEffect(() => {
+    const id = setInterval(() => setGreeting(getGreeting()), 60000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!user?.employee_id) return;
@@ -37,10 +44,10 @@ export default function EmployeeDashboard() {
   const dateStr = today.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
   const totalWeekHours = recentRecords.reduce((s, r) => s + (parseFloat(r.total_hours) || 0), 0);
 
-  const statusBadge = (s) => {
+  const statusBadge = (s, rec) => {
     if (s === "present_partial") s = "present";
-    const map = { present: "green", late: "orange", absent: "red", leave: "purple", field_duty: "teal", approved: "green", present_incomplete: "orange" };
-    return <span className={`badge badge-${map[s] || "blue"}`}>{(s || "no data").replace(/_/g, " ")}</span>;
+    const map = { present: "green", late: "orange", absent: "red", leave: "purple", field_duty: "teal", approved: "green", present_incomplete: "orange", holiday: "gray", half_day: "cyan" };
+    return <span className={`badge badge-${map[s] || "blue"}`}>{holidayBadgeText(s, rec)}</span>;
   };
 
   return (
@@ -48,7 +55,7 @@ export default function EmployeeDashboard() {
       <div className="page-header">
         <div>
           <p className="eyebrow">Welcome Back</p>
-          <h1>Good {today.getHours() < 12 ? "Morning" : today.getHours() < 17 ? "Afternoon" : "Evening"}, {user?.full_name?.split(" ")[0] || "Employee"}</h1>
+          <h1>{greeting}, {user?.full_name || user?.username}!</h1>
           <p>{dayName}, {dateStr}</p>
         </div>
       </div>
@@ -56,11 +63,11 @@ export default function EmployeeDashboard() {
       <div className="stats-grid stats-grid-4">
         <article className="stat-card green">
           <div className="stat-icon"><Icon name="check-circle" size={20} /></div>
-          <div><p className="stat-label">Today's Status</p><div className="stat-value">{todayData ? statusBadge(todayData.status) : <span className="badge badge-gray">No data</span>}</div></div>
+          <div><p className="stat-label">Today's Status</p><div className="stat-value">{todayData ? statusBadge(todayData.status, todayData) : <span className="badge badge-gray">No data</span>}</div></div>
         </article>
         <article className="stat-card blue">
           <div className="stat-icon"><Icon name="clock" size={20} /></div>
-          <div><p className="stat-label">Today's Hours</p><div className="stat-value">{todayData?.total_hours ? `${parseFloat(todayData.total_hours).toFixed(1)}h` : "0h"}</div></div>
+          <div><p className="stat-label">Today's Hours</p><div className="stat-value">{todayData ? formatHours(todayData.total_hours, todayData.status) : "0h"}</div></div>
         </article>
         <article className="stat-card orange">
           <div className="stat-icon"><Icon name="database" size={20} /></div>
@@ -80,7 +87,7 @@ export default function EmployeeDashboard() {
               <div style={{ display: "grid", gap: "12px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span className="text-muted">Check In</span><strong>{todayData.first_in ? formatBioTimeTimeValue(todayData.first_in) : "—"}</strong></div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}><span className="text-muted">Check Out</span><strong>{todayData.last_out ? formatBioTimeTimeValue(todayData.last_out) : "—"}</strong></div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span className="text-muted">Working Hours</span><strong>{todayData.total_hours ? `${parseFloat(todayData.total_hours).toFixed(1)}h` : "—"}</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span className="text-muted">Working Hours</span><strong>{todayData.total_hours ? formatHours(todayData.total_hours, todayData.status) : "—"}</strong></div>
                 {todayData.status === "present_incomplete" && <div style={{ display: "flex", justifyContent: "space-between" }}><span className="text-muted">Reminder</span><span className="badge badge-orange">Don't forget to check out!</span></div>}
               </div>
             ) : (
@@ -111,8 +118,8 @@ export default function EmployeeDashboard() {
                   <td className="strong-cell">{formatBioTimeDateValue(r.date)}</td>
                   <td className="td-muted">{r.first_in ? formatBioTimeTimeValue(r.first_in) : "—"}</td>
                   <td className="td-muted">{r.last_out ? formatBioTimeTimeValue(r.last_out) : "—"}</td>
-                  <td className="td-muted">{r.total_hours ? `${parseFloat(r.total_hours).toFixed(1)}h` : "—"}</td>
-                  <td>{statusBadge(r.status)}</td>
+                  <td className="td-muted">{r.total_hours ? formatHours(r.total_hours, r.status) : "—"}</td>
+                  <td>{statusBadge(r.status, r)}</td>
                 </tr>
               )) : <tr><td colSpan={5} className="table-message">No records this week.</td></tr>}
             </tbody>

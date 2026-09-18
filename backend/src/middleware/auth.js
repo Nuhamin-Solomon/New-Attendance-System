@@ -34,14 +34,15 @@ async function authenticate(req, res, next) {
       [decoded.id]
     );
 
-    if (result.rows.length > 0) {
-      const row = result.rows[0];
-      if (!row.is_active) return res.status(401).json({ error: "Account is disabled" });
-      req.user.employee_id = req.user.employee_id || row.employee_id;
-      req.user.full_name = row.full_name || row.employee_name || row.username;
-      req.user.email = row.email;
-      req.user.employee_department = row.employee_department;
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: "Account no longer exists" });
     }
+    const row = result.rows[0];
+    if (!row.is_active) return res.status(401).json({ error: "Account is disabled" });
+    req.user.employee_id = req.user.employee_id || row.employee_id;
+    req.user.full_name = row.full_name || row.employee_name || row.username;
+    req.user.email = row.email;
+    req.user.employee_department = row.employee_department;
 
     const deptAssignments = await pool.query(
       `SELECT da.id AS assignment_id, da.assignment_type, d.id AS department_id, d.name AS department_name

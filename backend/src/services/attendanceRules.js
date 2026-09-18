@@ -24,7 +24,7 @@ function timeToMinutes(value) {
   return Number(match[1] || match[3]) * 60 + Number(match[2] || match[4]);
 }
 
-function classifyAttendance({ firstIn, lastOut, scanCount = 0, rules, approvedStatus = null, approvedType = "" }) {
+function classifyAttendance({ firstIn, lastOut, scanCount = 0, rules, approvedStatus = null, approvedType = "", holiday = null }) {
   if (approvedStatus === "approved" || approvedStatus === "on_leave" || approvedStatus === "leave") {
     return {
       totalHours: 0,
@@ -37,10 +37,23 @@ function classifyAttendance({ firstIn, lastOut, scanCount = 0, rules, approvedSt
   }
   const scans = Number(scanCount) || 0;
   if (scans === 0 || !firstIn) {
+    if (holiday && holiday.type === "full") {
+      return { totalHours: 0, status: "holiday", isLate: false, lateMinutes: 0, approved: false, approvedType: "" };
+    }
     return { totalHours: 0, status: "absent", isLate: false, lateMinutes: 0, approved: false, approvedType: "" };
   }
   const totalHours = computeTotalHours(firstIn, lastOut);
   const missingCheckout = scans < 2 || !lastOut || firstIn === lastOut;
+  if (holiday && holiday.type === "half") {
+    return {
+      totalHours,
+      status: missingCheckout ? "present_incomplete" : "half_day",
+      isLate: false,
+      lateMinutes: 0,
+      approved: false,
+      approvedType: "",
+    };
+  }
   const firstInMinutes = timeToMinutes(firstIn);
   const lateMinutes = !missingCheckout && firstInMinutes !== null
     ? Math.max(0, firstInMinutes - rules.lateAfterMinutes)

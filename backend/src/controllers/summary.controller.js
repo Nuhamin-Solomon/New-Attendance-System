@@ -2,7 +2,8 @@ const pool = require("../config/db");
 const { buildEmployeeFilter } = require("../utils/departmentFilter");
 const { computeTotalHours } = require("../services/attendanceTime");
 const { getAttendanceRules, classifyAttendance } = require("../services/attendanceRules");
-const { workingDayKeys: getWorkingDayKeys, getWorkingDays } = require("../services/workingDays");
+const { getWorkingDays } = require("../services/workingDays");
+const { buildCalendar, getHolidayMap, holidayDisplayLabel } = require("../services/holidays");
 
 function dateKey(value) {
   if (value instanceof Date) {
@@ -25,6 +26,8 @@ exports.list = async (req, res) => {
     const start = start_date || today;
     const end = end_date || today;
     const workingDays = await getWorkingDays();
+    const holidayMap = await getHolidayMap(start, end);
+    const specialDateKeys = Object.entries(holidayMap).filter(([, h]) => h.type === "special").map(([k]) => k);
 
     let query = `
       SELECT
@@ -32,11 +35,11 @@ exports.list = async (req, res) => {
         asci.date, asci.first_in, asci.last_out,
         asci.total_hours, asci.status, asci.is_late, asci.late_minutes
       FROM employees e
-      LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date BETWEEN $1 AND $2 AND EXTRACT(DOW FROM asci.date) = ANY($3::int[])
+      LEFT JOIN attendance_summary asci ON asci.employee_id = e.id AND asci.date BETWEEN $1 AND $2 AND (EXTRACT(DOW FROM asci.date) = ANY($3::int[]) OR asci.date = ANY($4::date[]))
       WHERE e.status = 'active'
     `;
-    const params = [start, end, workingDays];
-    let idx = 4;
+    const params = [start, end, workingDays, specialDateKeys];
+    let idx = 5;
 
     const deptFilter = buildEmployeeFilter(req.user, idx, selectedDepts, selectedIds);
     if (deptFilter.clause) {
@@ -50,7 +53,14 @@ exports.list = async (req, res) => {
     query += " ORDER BY e.full_name, asci.date";
     const result = await pool.query(query, params);
 
-    res.json(result.rows);
+    res.json(result.rows.map((row) => {
+      const holiday = holidayMap[dateKey(row.date)] || null;
+      return {
+        ...row,
+        holiday_name: holiday ? holiday.name : "",
+        holiday_label: holiday ? holidayDisplayLabel(holiday) : "",
+      };
+    }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -82,16 +92,25 @@ exports.myAttendance = async (req, res) => {
     const start = start_date || new Date(Date.now() - 30 * 86400000).toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi", year: "numeric", month: "2-digit", day: "2-digit" });
     const end = end_date || today;
     const workingDays = await getWorkingDays();
+    const holidayMap = await getHolidayMap(start, end);
+    const specialDateKeys = Object.entries(holidayMap).filter(([, h]) => h.type === "special").map(([k]) => k);
 
     const result = await pool.query(
       `SELECT * FROM attendance_summary
        WHERE employee_id = $1 AND date BETWEEN $2 AND $3
-         AND EXTRACT(DOW FROM date) = ANY($4::int[])
+         AND (EXTRACT(DOW FROM date) = ANY($4::int[]) OR date = ANY($5::date[]))
        ORDER BY date DESC`,
-      [employeeId, start, end, workingDays]
+      [employeeId, start, end, workingDays, specialDateKeys]
     );
 
-    res.json(result.rows);
+    res.json(result.rows.map((row) => {
+      const holiday = holidayMap[dateKey(row.date)] || null;
+      return {
+        ...row,
+        holiday_name: holiday ? holiday.name : "",
+        holiday_label: holiday ? holidayDisplayLabel(holiday) : "",
+      };
+    }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -173,8 +192,8 @@ exports.searchEmployees = async (req, res) => {
 
 async function computeEmployeeSummary(employee, startKey, endKey) {
   const rules = await getAttendanceRules();
-  const workingDayKeys = await getWorkingDayKeys(startKey, endKey);
-  const totalWorkingDays = workingDayKeys.length;
+  const calendar = await buildCalendar(startKey, endKey, await getWorkingDays());
+  const totalWorkingDays = calendar.openDayCount;
 
   const [logsResult, approvedResult, leaveResult] = await Promise.all([
     pool.query(
@@ -207,28 +226,47 @@ async function computeEmployeeSummary(employee, startKey, endKey) {
   const approvedSet = new Set(approvedResult.rows.map((r) => dateKey(r.date)));
   const leaveSet = new Set(leaveResult.rows.map((r) => dateKey(r.date)));
 
-  let presentDays = 0, missingCheckout = 0, approvedDays = 0, leaveDays = 0, lateArrivals = 0, totalHours = 0;
+let presentDays = 0, missingCheckout = 0, approvedDays = 0, leaveDays = 0, holidayDays = 0, halfDayDays = 0, lateArrivals = 0, totalHours = 0;
   const days = [];
 
-  for (const dayKey of workingDayKeys) {
+  for (const day of calendar.days) {
+    if (!day.open && !day.holiday) continue;
+    const dayKey = day.key;
     const [yd, md, dd] = dayKey.split("-").map(Number);
     const dayName = new Date(Date.UTC(yd, md - 1, dd)).toLocaleDateString("en-US", { weekday: "long" });
     const log = logMap[dayKey];
-    const classification = classifyAttendance({
-      firstIn: log?.first_in,
-      lastOut: log?.last_out,
-      scanCount: log?.scan_count,
-      rules,
-      approvedStatus: !log && (approvedSet.has(dayKey) ? "approved" : leaveSet.has(dayKey) ? "leave" : null),
+    const hasScan = Boolean(log && (Number(log.scan_count) > 0 || log.first_in || log.last_out));
+    const approvedStatus = !log && (approvedSet.has(dayKey) ? "approved" : leaveSet.has(dayKey) ? "leave" : null);
+
+    let status;
+    if (day.holiday && day.holiday.type === "full" && !hasScan && !approvedStatus) {
+      status = "holiday";
+      holidayDays++;
+    } else {
+      const classification = classifyAttendance({
+        firstIn: log?.first_in,
+        lastOut: log?.last_out,
+        scanCount: log?.scan_count || 0,
+        rules,
+        approvedStatus,
+        approvedType: "",
+        holiday: day.holiday,
+      });
+      status = classification.status === "present_incomplete" ? "missing_checkout" : classification.status;
+      totalHours += classification.totalHours;
+      if (status === "present" || status === "half_day") {
+        presentDays++;
+        if (status === "half_day") halfDayDays++;
+      } else if (status === "missing_checkout") missingCheckout++;
+      else if (status === "approved" || status === "on_leave") approvedDays++;
+      else if (status === "leave") leaveDays++;
+      if (classification.isLate) lateArrivals++;
+    }
+    days.push({
+      date: dayKey, day: dayName, status,
+      holiday_name: day.holiday ? day.holiday.name : "",
+      holiday_type: day.holiday ? holidayDisplayLabel(day.holiday) : "",
     });
-    const status = classification.status === "present_incomplete" ? "missing_checkout" : classification.status;
-    totalHours += classification.totalHours;
-    if (status === "present") presentDays++;
-    else if (status === "missing_checkout") missingCheckout++;
-    else if (status === "approved") approvedDays++;
-    else if (status === "leave" || status === "on_leave") leaveDays++;
-    if (classification.isLate) lateArrivals++;
-    days.push({ date: dayKey, day: dayName, status });
   }
 
   const absentDays = Math.max(totalWorkingDays - presentDays - missingCheckout - approvedDays - leaveDays, 0);
@@ -241,11 +279,14 @@ async function computeEmployeeSummary(employee, startKey, endKey) {
     total_working_days: totalWorkingDays,
     present_days: presentDays,
     absent_days: absentDays,
-    missing_checkout: missingCheckout,
+missing_checkout: missingCheckout,
     approved_days: approvedDays,
     leave_days: leaveDays,
+    holiday_days: holidayDays,
+    half_day_days: halfDayDays,
     late_arrivals: lateArrivals,
     total_hours: Math.round(totalHours * 100) / 100,
+    holidays: calendar.days.filter((d) => d.holiday).map((d) => ({ ...d.holiday, date: d.key })),
   };
 }
 

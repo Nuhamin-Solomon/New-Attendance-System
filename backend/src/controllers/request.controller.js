@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const { getDepartmentFilter } = require("../utils/departmentFilter");
 const { getAttendanceRules, classifyAttendance } = require("../services/attendanceRules");
+const { getHoliday } = require("../services/holidays");
 
 const VALID_TYPES = [
   "field_duty", "official_travel", "client_visit", "training",
@@ -31,9 +32,10 @@ async function revertAttendanceSummary(employeeId, date) {
      WHERE employee_id = $1 AND DATE(scan_time) = $2`,
     [employeeId, date]
   );
-  const l = logs.rows[0];
+const l = logs.rows[0];
   if (l && parseInt(l.scan_count) > 0) {
-    const classification = classifyAttendance({ firstIn: l.first_in, lastOut: l.last_out, scanCount: l.scan_count, rules });
+    const holiday = await getHoliday(date);
+    const classification = classifyAttendance({ firstIn: l.first_in, lastOut: l.last_out, scanCount: l.scan_count, rules, holiday });
     await pool.query(
       `INSERT INTO attendance_summary (employee_id, date, first_in, last_out, total_hours, status, is_late, late_minutes)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -42,11 +44,13 @@ async function revertAttendanceSummary(employeeId, date) {
       [employeeId, date, l.first_in, l.last_out, classification.totalHours, classification.status, classification.isLate, classification.lateMinutes]
     );
   } else {
+    const holiday = await getHoliday(date);
+    const fallbackStatus = holiday && holiday.type === "full" ? "holiday" : "absent";
     await pool.query(
       `INSERT INTO attendance_summary (employee_id, date, status)
-       VALUES ($1, $2, 'absent')
-       ON CONFLICT (employee_id, date) DO UPDATE SET status = 'absent', notes = NULL`,
-      [employeeId, date]
+       VALUES ($1, $2, $3)
+       ON CONFLICT (employee_id, date) DO UPDATE SET status = $3, notes = NULL`,
+      [employeeId, date, fallbackStatus]
     );
   }
 }

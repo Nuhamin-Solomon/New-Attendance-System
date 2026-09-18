@@ -216,6 +216,67 @@ exports.resetPassword = async (req, res) => {
   }
 };
 
+exports.permanentRemove = async (req, res) => {
+  const targetId = req.params.id;
+  if (parseInt(targetId) === req.user.id) {
+    return res.status(400).json({ error: "Cannot permanently delete your own account" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const user = await client.query("SELECT id, username, employee_id FROM users WHERE id = $1 FOR UPDATE", [targetId]);
+    if (user.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "User not found" });
+    }
+    const { username, employee_id } = user.rows[0];
+
+    // Clear references to this user from other tables so the NO ACTION
+    // foreign keys on manager/hr/approver columns do not block deletion.
+    await client.query("UPDATE attendance_requests SET manager_id = NULL WHERE manager_id = $1", [targetId]);
+    await client.query("UPDATE attendance_requests SET hr_id = NULL WHERE hr_id = $1", [targetId]);
+    await client.query("UPDATE leave_requests SET approved_by = NULL WHERE approved_by = $1", [targetId]);
+    await client.query("UPDATE leave_requests SET manager_id = NULL WHERE manager_id = $1", [targetId]);
+    await client.query("UPDATE leave_requests SET hr_id = NULL WHERE hr_id = $1", [targetId]);
+
+    // User-owned rows that must be removed with the account.
+    await client.query("DELETE FROM notifications WHERE user_id = $1", [targetId]);
+
+    if (employee_id) {
+      await client.query("UPDATE employees SET manager_id = NULL WHERE manager_id = $1", [employee_id]);
+      await client.query("UPDATE employees SET hr_id = NULL WHERE hr_id = $1", [employee_id]);
+      await client.query("UPDATE departments SET manager_id = NULL WHERE manager_id = $1", [employee_id]);
+
+      await client.query("DELETE FROM attendance_logs WHERE employee_id = $1", [employee_id]);
+      await client.query("DELETE FROM attendance_sessions WHERE employee_id = $1", [employee_id]);
+      await client.query("DELETE FROM attendance_summary WHERE employee_id = $1", [employee_id]);
+      await client.query("DELETE FROM attendance_requests WHERE employee_id = $1", [employee_id]);
+      await client.query("DELETE FROM leave_balances WHERE employee_id = $1", [employee_id]);
+      await client.query("DELETE FROM leave_requests WHERE employee_id = $1", [employee_id]);
+      await client.query("DELETE FROM pending_attendance_logs WHERE employee_id = $1", [employee_id]);
+
+      await client.query("DELETE FROM employees WHERE id = $1", [employee_id]);
+    }
+
+    await client.query("DELETE FROM users WHERE id = $1", [targetId]);
+
+    await client.query(
+      "INSERT INTO audit_log (user_id, action, entity_type, entity_id, details) VALUES ($1, $2, $3, $4, $5)",
+      [req.user.id, "delete_user_permanent", "user", targetId, JSON.stringify({ username, employee_id: employee_id || null })]
+    );
+
+    await client.query("COMMIT");
+    res.json({ message: "Employee permanently deleted along with all related records" });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
+  }
+};
+
 exports.remove = async (req, res) => {
   try {
     if (parseInt(req.params.id) === req.user.id) {

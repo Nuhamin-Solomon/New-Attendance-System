@@ -102,6 +102,7 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .dash-header-left { display: flex; align-items: center; gap: 14px; }
 .dash-header-left h1 { font-family: "Plus Jakarta Sans", sans-serif; font-size: clamp(22px, 3vw, 28px); letter-spacing: -0.8px; line-height: 1.2; margin: 4px 0 0; color: var(--primary); }
 .dash-header-left p { color: var(--text-muted); margin: 2px 0 0; font-size: 13px; }
+.dash-header-left .dash-greeting { color: var(--secondary); font-size: 14px; font-weight: 800; letter-spacing: -.2px; margin: 0; }
 .dash-header-right { display: flex; align-items: center; gap: 12px; }
 .dash-date { color: var(--text-muted); font-size: 13px; }
 .dash-user { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 10px; cursor: pointer; transition: background .15s; }
@@ -235,6 +236,8 @@ tbody tr:hover { background: #fafbff; }
 .badge-red { background: rgba(239,68,68,.1); color: #dc2626; }
 .badge-purple { background: rgba(139,92,246,.1); color: #7c3aed; }
 .badge-teal { background: rgba(15,85,101,.1); color: var(--teal); }
+.badge-cyan { background: rgba(6,182,212,.1); color: #0e7490; }
+.badge-gray { background: rgba(107,114,128,.1); color: #6b7280; }
 
 /* ========== BUTTONS ========== */
 .btn { border: 0; display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; padding: 9px 14px; font-size: 12px; font-weight: 700; transition: .15s; white-space: nowrap; }
@@ -362,6 +365,8 @@ tbody tr:hover { background: #fafbff; }
 .td-approved { color: var(--success); font-size: 11px; font-weight: 600; }
 .td-warning { color: var(--secondary); font-weight: 600; }
 .td-absent { color: var(--text-muted); font-style: italic; font-size: 11px; white-space: nowrap; }
+.td-holiday { color: #6b7280; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.td-half-day { color: #0e7490; font-weight: 600; }
 .td-mco { color: var(--secondary); font-weight: 600; font-size: 10px; white-space: nowrap; }
 .link-cell { background: none; border: 0; padding: 0; font: inherit; color: var(--primary); font-weight: 600; cursor: pointer; text-align: left; display: inline-flex; align-items: center; gap: 4px; }
 .link-cell:hover { text-decoration: underline; }

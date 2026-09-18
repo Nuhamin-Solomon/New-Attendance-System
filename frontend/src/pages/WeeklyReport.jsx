@@ -7,6 +7,7 @@ import DepartmentFilter from "../components/DepartmentFilter";
 import Pagination from "../components/Pagination";
 import { matchesSearch } from "../utils/search";
 import { buildReportParams, activeFilterLabel } from "../utils/reportFilters";
+import { formatHours } from "../utils/holidays";
 
 const PAGE_SIZE = 25;
 
@@ -86,10 +87,11 @@ export default function WeeklyReport() {
           const day = emp.days[d.key];
           let inTime = day?.check_in || "";
           let outTime = day?.check_out || "";
-          let hrs = day?.total_hours ? parseFloat(day.total_hours).toFixed(1) : "";
+          let hrs = day?.total_hours ? formatHours(day.total_hours, day?.half_day ? "half_day" : "", false) : "";
           if (day?.absent) { inTime = "Absent"; outTime = ""; hrs = ""; }
           if (day?.missing_checkout) outTime = "Missed Clock-Out";
           if (day?.approved) { inTime = day.approved_type || "Approved"; outTime = ""; hrs = ""; }
+          if (day?.holiday) { inTime = day.holiday_label || "Holiday"; outTime = ""; hrs = ""; }
           row.push(inTime, outTime, hrs);
         });
         row.push(emp.weekly_hours?.toFixed(1) || "0");
@@ -177,12 +179,13 @@ export default function WeeklyReport() {
                       const day = emp.days[d.key];
                       if (!day) return <Fragment key={`${d.key}-empty`}><td className="td-center"></td><td className="td-center"></td><td className="td-center"></td></Fragment>;
                       if (day.approved) return <Fragment key={`${d.key}-app`}><td className="td-center td-approved" colSpan={3}>{day.approved_type || "Approved"}</td></Fragment>;
+                      if (day.holiday) return <Fragment key={`${d.key}-hol`}><td className="td-center td-holiday" colSpan={3}>{day.holiday_label || day.holiday_name || "Holiday"}</td></Fragment>;
                       if (day.absent) return <Fragment key={`${d.key}-abs`}><td className="td-center td-absent" colSpan={3}>Absent</td></Fragment>;
                       return (
                         <Fragment key={d.key}>
                           <td className="td-center">{day.check_in || "\u2014"}</td>
                           <td className={`td-center${day.missing_checkout ? " td-warning" : ""}`}>{day.missing_checkout ? <span className="td-mco">Missed Clock-Out</span> : (day.check_out || "\u2014")}</td>
-                          <td className="td-center td-muted">{day.total_hours ? `${parseFloat(day.total_hours).toFixed(1)}` : "\u2014"}</td>
+                          <td className={`td-center td-muted${day.half_day ? " td-half-day" : ""}`}>{day.total_hours ? formatHours(day.total_hours, day.half_day ? "half_day" : null, false) : "\u2014"}</td>
                         </Fragment>
                       );
                     })}

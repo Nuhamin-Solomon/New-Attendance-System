@@ -10,6 +10,7 @@ router.get("/:id", ctrl.get);
 router.post("/", ctrl.create);
 router.put("/:id", ctrl.update);
 router.put("/:id/reset-password", ctrl.resetPassword);
+router.delete("/:id/permanent", ctrl.permanentRemove);
 router.delete("/:id", ctrl.remove);
 
 module.exports = router;

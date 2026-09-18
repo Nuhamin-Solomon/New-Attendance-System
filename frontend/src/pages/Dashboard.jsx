@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import API from "../services/api";
 import Icon from "../components/Icon";
+import { getGreeting } from "../utils/time";
+import { holidayBadgeText, formatHours } from "../utils/holidays";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, Legend,
@@ -10,12 +12,14 @@ import {
 
 const STATUS_BADGE = {
   present: "green", late: "orange", absent: "red", leave: "purple",
-  approved: "blue", missing_checkout: "orange",
+  approved: "blue", missing_checkout: "orange", holiday: "gray", half_day: "cyan",
 };
 
-const statusBadge = (status) => {
+const statusBadge = (status, rec) => {
+  let text = holidayBadgeText(status, rec);
+  if (status !== "holiday" && !status) text = "unknown";
   const tone = STATUS_BADGE[status] || "blue";
-  return <span className={`badge badge-${tone}`}>{(status || "unknown").replace(/_/g, " ")}</span>;
+  return <span className={`badge badge-${tone}`}>{text}</span>;
 };
 
 function aggregateTrend(raw, groupBy) {
@@ -109,6 +113,12 @@ export default function Dashboard() {
   const [resetResults, setResetResults] = useState([]);
   const [resetPw, setResetPw] = useState("changeme123");
   const [resetTarget, setResetTarget] = useState(null);
+  const [greeting, setGreeting] = useState(getGreeting());
+
+  useEffect(() => {
+    const id = setInterval(() => setGreeting(getGreeting()), 60000);
+    return () => clearInterval(id);
+  }, []);
 
   const loadDashboard = () => {
     setLoading(true);
@@ -202,7 +212,7 @@ export default function Dashboard() {
             <Icon name="home" size={14} />
           </button>
           <div>
-            <p className="eyebrow">Overview</p>
+            <p className="dash-greeting">{greeting}, {user?.full_name || user?.username}!</p>
             <h1>Attendance Dashboard</h1>
             <p className="dash-date">{new Date((stats.date || "") + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })}</p>
           </div>
@@ -336,8 +346,8 @@ export default function Dashboard() {
                   <td><span className="badge badge-blue">{emp.department || "—"}</span></td>
                   <td className="td-center">{emp.first_in || "—"}</td>
                   <td className="td-center">{emp.last_out || "—"}</td>
-                  <td className="td-center">{emp.total_hours ? `${Number(emp.total_hours).toFixed(1)}h` : "—"}</td>
-                  <td className="td-center">{statusBadge(emp.status)}</td>
+                  <td className="td-center">{emp.total_hours ? formatHours(emp.total_hours, emp.status) : "—"}</td>
+                  <td className="td-center">{statusBadge(emp.status, emp)}</td>
                 </tr>
               )) : (
                 <tr><td colSpan={7} className="table-message">No attendance data for today</td></tr>

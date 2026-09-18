@@ -7,6 +7,7 @@ import EmployeeFilter from "../../components/EmployeeFilter";
 import Pagination from "../../components/Pagination";
 import { matchesSearch } from "../../utils/search";
 import { buildReportParams, activeFilterLabel } from "../../utils/reportFilters";
+import { formatHours } from "../../utils/holidays";
 
 const PAGE_SIZE = 25;
 
@@ -104,6 +105,7 @@ export default function DepartmentReport() {
           if (rec?.absent) { inTime = "Absent"; outTime = ""; hrs = ""; }
           if (rec?.missing_checkout) outTime = "Missed Clock-Out";
           if (rec?.approved) { inTime = rec.approved_type || "Approved"; outTime = ""; hrs = ""; }
+          if (rec?.holiday) { inTime = rec.holiday_label || "Holiday"; outTime = ""; hrs = ""; }
           row.push(inTime, outTime, hrs);
         });
         row.push(emp.total_hours?.toFixed(1) || "0");
@@ -200,12 +202,13 @@ export default function DepartmentReport() {
                             const rec = recMap[d.key];
                             if (!rec) return <Fragment key={d.key}><td className="td-center"></td><td className="td-center"></td><td className="td-center"></td></Fragment>;
                             if (rec.approved) return <Fragment key={d.key}><td className="td-center td-approved" colSpan={3}>{rec.approved_type || "Approved"}</td></Fragment>;
+                            if (rec.holiday) return <Fragment key={d.key}><td className="td-center td-holiday" colSpan={3}>{rec.holiday_label || rec.holiday_name || "Holiday"}</td></Fragment>;
                             if (rec.absent) return <Fragment key={d.key}><td className="td-center td-absent" colSpan={3}>Absent</td></Fragment>;
                             return (
                               <Fragment key={d.key}>
                                 <td className="td-center">{rec.check_in || "\u2014"}</td>
                                 <td className={`td-center${rec.missing_checkout ? " td-warning" : ""}`}>{rec.missing_checkout ? <span className="td-mco">Missed Clock-Out</span> : (rec.check_out || "\u2014")}</td>
-                                <td className="td-center td-muted">{rec.total_hours ? parseFloat(rec.total_hours).toFixed(1) : "\u2014"}</td>
+                                <td className={`td-center td-muted${rec.status === "half_day" ? " td-half-day" : ""}`}>{rec.total_hours ? formatHours(rec.total_hours, rec.status, false) : "\u2014"}</td>
                               </Fragment>
                             );
                           })}

@@ -1,6 +1,8 @@
 const pool = require("../config/db");
 const { getEmployees, getAttendance } = require("./biotime.service");
 const { getAttendanceRules, classifyAttendance } = require("./attendanceRules");
+const { getHolidayMap, buildCalendar, holidayDisplayLabel } = require("./holidays");
+const { getWorkingDays } = require("./workingDays");
 
 let schemaReady = null;
 
@@ -142,12 +144,20 @@ const computeAttendanceSummary = async () => {
     approvedMap[key] = row.request_type;
   }
 
+const workDateStrings = result.rows.map((r) => typeof r.work_date === "string" ? r.work_date : new Date(r.work_date).toISOString().split("T")[0]);
+  const logsMinDate = workDateStrings.length > 0 ? workDateStrings.reduce((a, b) => a < b ? a : b) : null;
+  const logsMaxDate = workDateStrings.length > 0 ? workDateStrings.reduce((a, b) => a > b ? a : b) : null;
+  const logsHolidayMap = logsMinDate && logsMaxDate ? await getHolidayMap(logsMinDate, logsMaxDate) : {};
+
   let computed = 0;
   for (const row of result.rows) {
     const firstIn = row.first_in;
     const lastOut = row.last_out;
+    const workDateKey = typeof row.work_date === "string" ? row.work_date : new Date(row.work_date).toISOString().split("T")[0];
+    const dayHoliday = logsHolidayMap[workDateKey] || null;
     const classification = classifyAttendance({
       firstIn, lastOut, scanCount: row.scan_count, rules,
+      holiday: dayHoliday,
     });
 
     await pool.query(`
@@ -171,6 +181,11 @@ const computeAttendanceSummary = async () => {
     SELECT DISTINCT date FROM attendance_summary WHERE date >= CURRENT_DATE - INTERVAL '30 days'
   `);
 
+  const dateStrings = summaryDates.rows.map((d) => typeof d.date === "string" ? d.date : new Date(d.date).toISOString().split("T")[0]);
+  const minDate = dateStrings.length > 0 ? dateStrings.reduce((a, b) => a < b ? a : b) : new Date().toISOString().split("T")[0];
+  const maxDate = dateStrings.length > 0 ? dateStrings.reduce((a, b) => a > b ? a : b) : new Date().toISOString().split("T")[0];
+  const holidayMap = await getHolidayMap(minDate, maxDate);
+
   for (const d of summaryDates.rows) {
     for (const emp of activeEmps.rows) {
       const existing = await pool.query(
@@ -179,10 +194,16 @@ const computeAttendanceSummary = async () => {
       );
       if (existing.rows.length === 0) {
         const dateKey = typeof d.date === "string" ? d.date : new Date(d.date).toISOString().split("T")[0];
+        const holiday = holidayMap[dateKey] || null;
         const approvedKey = `${emp.id}_${dateKey}`;
         const approvedType = approvedMap[approvedKey];
 
-        if (approvedType) {
+        if (holiday && holiday.type === "full") {
+          await pool.query(
+            `INSERT INTO attendance_summary (employee_id, date, status, notes) VALUES ($1, $2, 'holiday', $3)`,
+            [emp.id, d.date, holidayDisplayLabel(holiday)]
+          );
+        } else if (approvedType) {
           const typeLabels = {
             field_duty: "Field Duty",
             official_travel: "Official Travel",
@@ -203,6 +224,48 @@ const computeAttendanceSummary = async () => {
         }
       }
     }
+  }
+
+  const holidaySeedStart = new Date();
+  holidaySeedStart.setMonth(holidaySeedStart.getMonth() - 1);
+  const holidaySeedStartKey = holidaySeedStart.toISOString().split("T")[0];
+  const todayKey = new Date().toISOString().split("T")[0];
+  const seedHolidayMap = await getHolidayMap(holidaySeedStartKey, todayKey);
+
+  for (const emp of activeEmps.rows) {
+    for (const [dateKey, holiday] of Object.entries(seedHolidayMap)) {
+      if (holiday.type !== "full") continue;
+      const approvedKey = `${emp.id}_${dateKey}`;
+      if (approvedMap[approvedKey]) continue;
+      const existing = await pool.query(
+        `SELECT id, status FROM attendance_summary WHERE employee_id = $1 AND date = $2`,
+        [emp.id, dateKey]
+      );
+      if (existing.rows.length === 0) {
+        await pool.query(
+          `INSERT INTO attendance_summary (employee_id, date, status, notes) VALUES ($1, $2, 'holiday', $3)
+           ON CONFLICT (employee_id, date) DO NOTHING`,
+          [emp.id, dateKey, holidayDisplayLabel(holiday)]
+        );
+      } else if (existing.rows[0].status === "absent") {
+        await pool.query(
+          `UPDATE attendance_summary SET status = 'holiday', notes = $2 WHERE id = $1`,
+          [existing.rows[0].id, holidayDisplayLabel(holiday)]
+        );
+      }
+    }
+  }
+
+  const halfDayHolidayDates = Object.entries(seedHolidayMap)
+    .filter(([, h]) => h.type === "half")
+    .map(([dateKey]) => dateKey);
+  if (halfDayHolidayDates.length > 0) {
+    await pool.query(
+      `UPDATE attendance_summary
+       SET status = 'absent', notes = NULL
+       WHERE date = ANY($1::date[]) AND status = 'holiday'`,
+      [halfDayHolidayDates]
+    );
   }
 
   console.log(`Attendance summary computed: ${computed} day-employee records`);
