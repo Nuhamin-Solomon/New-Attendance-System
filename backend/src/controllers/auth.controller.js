@@ -54,7 +54,7 @@ exports.login = async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    await pool.query("UPDATE users SET last_login = NOW() WHERE id = $1", [user.id]);
+    await pool.query("UPDATE users SET last_login = NOW(), last_activity_at = NOW() WHERE id = $1", [user.id]);
 
     const token = generateToken(user);
 
@@ -78,6 +78,15 @@ exports.login = async (req, res) => {
     });
   } catch (e) {
     console.error("Login error:", e.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+exports.activity = async (req, res) => {
+  try {
+    await pool.query("UPDATE users SET last_activity_at = NOW() WHERE id = $1", [req.user.id]);
+    res.json({ ok: true });
+  } catch (e) {
     res.status(500).json({ error: "Internal server error" });
   }
 };

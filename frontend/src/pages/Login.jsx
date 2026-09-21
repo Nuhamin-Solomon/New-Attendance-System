@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Icon from "../components/Icon";
@@ -9,7 +9,15 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (sessionStorage.getItem("session_expired")) {
+      sessionStorage.removeItem("session_expired");
+      setInfo("Your session has expired. Please log in again.");
+    }
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -37,6 +45,7 @@ export default function Login() {
         <p className="login-intro">Sign in to the Attendance Management System</p>
 
         {error && <div className="error-msg">{error}</div>}
+        {info && <div className="success-msg">{info}</div>}
 
         <form onSubmit={handleSubmit}>
           <label className="form-label" htmlFor="username">Email / Username</label>

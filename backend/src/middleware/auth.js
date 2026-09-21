@@ -6,6 +6,13 @@ if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
 }
 const JWT_SECRET = process.env.JWT_SECRET || "development-only-attendance-secret";
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "24h";
+const SESSION_TIMEOUT_MINUTES = parseInt(process.env.SESSION_TIMEOUT_MINUTES || "30", 10);
+const SESSION_TIMEOUT_MS = SESSION_TIMEOUT_MINUTES * 60 * 1000;
+
+function isSessionExpired(lastActivity, now = Date.now(), timeoutMs = SESSION_TIMEOUT_MS) {
+  if (!lastActivity) return false;
+  return now - new Date(lastActivity).getTime() > timeoutMs;
+}
 
 function generateToken(user) {
   return jwt.sign(
@@ -26,7 +33,7 @@ async function authenticate(req, res, next) {
     req.user = decoded;
 
     const result = await pool.query(
-      `SELECT u.id, u.username, u.role, u.full_name, u.employee_id, u.email, u.is_active,
+      `SELECT u.id, u.username, u.role, u.full_name, u.employee_id, u.email, u.is_active, u.last_activity_at,
               e.department AS employee_department, e.full_name AS employee_name
        FROM users u
        LEFT JOIN employees e ON e.id = u.employee_id
@@ -39,6 +46,17 @@ async function authenticate(req, res, next) {
     }
     const row = result.rows[0];
     if (!row.is_active) return res.status(401).json({ error: "Account is disabled" });
+
+    if (isSessionExpired(row.last_activity_at)) {
+      return res.status(401).json({ error: "Your session has expired. Please log in again." });
+    }
+
+    await pool.query(
+      `UPDATE users SET last_activity_at = NOW()
+       WHERE id = $1 AND (last_activity_at IS NULL OR last_activity_at < NOW() - INTERVAL '1 minute')`,
+      [decoded.id]
+    );
+
     req.user.employee_id = req.user.employee_id || row.employee_id;
     req.user.full_name = row.full_name || row.employee_name || row.username;
     req.user.email = row.email;
@@ -71,4 +89,4 @@ function authorize(...allowedRoles) {
   };
 }
 
-module.exports = { generateToken, authenticate, authorize, JWT_SECRET };
+module.exports = { generateToken, authenticate, authorize, JWT_SECRET, isSessionExpired };
