@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import API from "../services/api";
+import API, { readApiError } from "../services/api";
 import Icon from "../components/Icon";
 import Pagination from "../components/Pagination";
 
@@ -29,22 +29,22 @@ export default function MyRequests() {
 
   const handleCancelRequest = async (id) => {
     if (!confirm("Cancel this request?")) return;
-    try { await API.put(`/requests/${id}/cancel`); load(); } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    try { await API.put(`/requests/${id}/cancel`); load(); } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const handleRecallRequest = async (id) => {
     if (!confirm("Recall this approved request? This will revert the attendance records.")) return;
-    try { await API.put(`/requests/${id}/recall`); load(); } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    try { await API.put(`/requests/${id}/recall`); load(); } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const handleCancelLeave = async (id) => {
     if (!confirm("Cancel this leave request?")) return;
-    try { await API.put(`/leave/${id}/cancel`); load(); } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    try { await API.put(`/leave/${id}/cancel`); load(); } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const handleRecallLeave = async (id) => {
     if (!confirm("Recall this approved leave? This will revert attendance records and restore leave balance.")) return;
-    try { await API.put(`/leave/${id}/recall`); load(); } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    try { await API.put(`/leave/${id}/recall`); load(); } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const statusBadge = (s) => {

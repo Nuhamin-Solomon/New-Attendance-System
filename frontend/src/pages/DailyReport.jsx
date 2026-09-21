@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import API from "../services/api";
+import API, { readApiError } from "../services/api";
 import Icon from "../components/Icon";
 import ReportHeader from "../components/ReportHeader";
 import SearchBar from "../components/SearchBar";
@@ -36,7 +36,7 @@ export default function DailyReport() {
     const params = buildReportParams({ date }, { departments: filterDepts });
     API.get("/reports/daily", { params })
       .then((r) => setData(r.data))
-      .catch((err) => setError(err.response?.data?.error || "Unable to load the daily report. Please retry."))
+      .catch((err) => setError(readApiError(err, "Unable to load the daily report. Please retry.")))
       .finally(() => setLoading(false));
   }, [date, filterDepts]);
 

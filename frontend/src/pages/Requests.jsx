@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import API from "../services/api";
+import API, { readApiError } from "../services/api";
 import Icon from "../components/Icon";
 import Pagination from "../components/Pagination";
 
@@ -49,7 +49,7 @@ export default function Requests() {
       setEditId(null);
       setForm(emptyForm);
       load();
-    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const handleEdit = (r) => {
@@ -60,7 +60,7 @@ export default function Requests() {
 
   const handleCancel = async (id) => {
     if (!confirm("Cancel this request?")) return;
-    try { await API.put(`/requests/${id}/cancel`); load(); } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    try { await API.put(`/requests/${id}/cancel`); load(); } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const statusFiltered = filter === "all" ? requests : requests.filter((r) => r.status === filter);

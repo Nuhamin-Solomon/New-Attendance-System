@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import API from "../services/api";
+import API, { readApiError } from "../services/api";
 import Icon from "../components/Icon";
 import { getGreeting } from "../utils/time";
 import { holidayBadgeText, formatHours } from "../utils/holidays";
@@ -125,7 +125,7 @@ export default function Dashboard() {
     setError("");
     API.get("/reports/dashboard")
       .then((r) => setStats(r.data))
-      .catch((err) => setError(err.response?.data?.error || "Unable to load dashboard data."))
+      .catch((err) => setError(readApiError(err, "Unable to load dashboard data.")))
       .finally(() => setLoading(false));
   };
 
@@ -149,7 +149,7 @@ export default function Dashboard() {
       setResetTarget(null);
       setResetSearch("");
       setResetPw("changeme123");
-    } catch (err) { alert(err.response?.data?.error || "Failed to reset password"); }
+    } catch (err) { alert(readApiError(err, "Failed to reset password")); }
   };
 
   const trendData = useMemo(() => {

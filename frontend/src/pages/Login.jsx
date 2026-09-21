@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Icon from "../components/Icon";
+import { readApiError } from "../services/api";
 
 export default function Login() {
   const { login } = useAuth();
@@ -26,7 +27,7 @@ export default function Login() {
     try {
       await login(username, password);
     } catch (err) {
-      setError(err.response?.data?.error || "Login failed. Please try again.");
+      setError(readApiError(err, "Login failed. Please try again."));
     } finally {
       setLoading(false);
     }

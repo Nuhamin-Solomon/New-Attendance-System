@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import API from "../services/api";
+import API, { readApiError } from "../services/api";
 import Icon from "../components/Icon";
 
 export default function ForgotPassword() {
@@ -33,7 +33,7 @@ export default function ForgotPassword() {
         setNotice(res.data.message || "Password reset request accepted.");
       }
     } catch (err) {
-      setError(err.response?.data?.error || "Request failed. Please try again.");
+      setError(readApiError(err, "Request failed. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -58,7 +58,7 @@ export default function ForgotPassword() {
       setNewPassword("");
       setConfirmPassword("");
     } catch (err) {
-      setError(err.response?.data?.error || "Reset failed. Please try again.");
+      setError(readApiError(err, "Reset failed. Please try again."));
     } finally {
       setLoading(false);
     }

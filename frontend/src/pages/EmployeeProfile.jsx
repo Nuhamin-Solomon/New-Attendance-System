@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import API from "../services/api";
+import API, { readApiError } from "../services/api";
 import Icon from "../components/Icon";
 import { useAuth } from "../context/AuthContext";
 import { formatBioTimeDateTimeValue, formatBioTimeTimeValue } from "../utils/time";
@@ -138,7 +138,7 @@ export default function EmployeeProfile() {
       setEditing(false);
       load();
     } catch (err) {
-      alert(err.response?.data?.error || "Failed to save");
+      alert(readApiError(err, "Failed to save"));
     } finally {
       setSaving(false);
     }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import Icon from "../components/Icon";
+import { readApiError } from "../services/api";
 
 export default function ChangePassword() {
   const { forceChangePassword } = useAuth();
@@ -20,7 +21,7 @@ export default function ChangePassword() {
     try {
       await forceChangePassword(newPassword);
     } catch (err) {
-      setError(err.response?.data?.error || "Failed to change password");
+      setError(readApiError(err, "Failed to change password"));
     } finally {
       setLoading(false);
     }

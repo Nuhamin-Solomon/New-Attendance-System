@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
-import API from "../../services/api";
+import API, { readApiError } from "../../services/api";
 import Icon from "../../components/Icon";
 import Pagination from "../../components/Pagination";
 
@@ -145,7 +145,7 @@ export default function Users() {
       await API.post("/users", payload);
       resetForm();
       load();
-    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const handleEdit = (user) => {
@@ -176,7 +176,7 @@ export default function Users() {
       await API.put(`/users/${editUser.id}`, payload);
       resetForm();
       load();
-    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const handleResetPassword = (user) => {
@@ -191,12 +191,12 @@ export default function Users() {
       alert(`Password reset for ${resetModal.username}. New password: ${r.data.temporary_password}`);
       setResetModal(null);
       setResetPw("");
-    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const handleToggle = async (id, isActive) => {
     try { await API.put(`/users/${id}`, { is_active: !isActive }); load(); }
-    catch (err) { alert(err.response?.data?.error || "Failed"); }
+    catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const handleDelete = (user) => {
@@ -210,7 +210,7 @@ export default function Users() {
       await API.delete(`/users/${deleteTarget.id}/permanent`);
       setDeleteTarget(null);
       load();
-    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    } catch (err) { alert(readApiError(err, "Failed")); }
     finally { setDeleting(false); }
   };
 

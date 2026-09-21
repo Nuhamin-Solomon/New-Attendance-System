@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import API from "../services/api";
+import API, { readApiError } from "../services/api";
 import Icon from "../components/Icon";
 import Pagination from "../components/Pagination";
 
@@ -44,7 +44,7 @@ export default function ApprovalQueue() {
         await API.put(`/requests/${id}/hr`, { status: action, comment: commentText || null });
       }
       load();
-    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const handleLeaveAction = async (id, action, commentText) => {
@@ -56,7 +56,7 @@ export default function ApprovalQueue() {
         await API.put(`/leave/${id}/hr`, { status: action, comment: commentText || null });
       }
       load();
-    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const openComment = (type, id, action) => {

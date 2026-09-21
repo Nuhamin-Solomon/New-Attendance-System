@@ -25,13 +25,27 @@ const {
 
 const app = express();
 
-// Allow requests from any frontend
-const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:5173")
+// CORS. The Vercel-hosted frontend (https://*.vercel.app) talks to this API
+// cross-origin. We allow any configured origin plus all Vercel app domains:
+//   - CORS_ORIGINS   : comma-separated list (default = local dev origins)
+//   - *.vercel.app   : Vercel preview/production frontend
+// Non-allowed origins do NOT cause a 500; they simply get no CORS headers and
+// the browser blocks them (same behaviour as before, but no server crash).
+const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:5173,http://127.0.0.1:5173")
   .split(",").map((origin) => origin.trim()).filter(Boolean);
+
+function isOriginAllowed(origin) {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  if (/\.vercel\.app$/i.test(origin)) return true;
+  return false;
+}
+
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error("Origin not allowed by CORS"));
+    if (isOriginAllowed(origin)) return callback(null, true);
+    console.error(`[cors] Blocked cross-origin request from: ${origin}`);
+    return callback(null, false);
   },
 }));
 
@@ -79,6 +93,21 @@ app.get("/api/health", async (req, res) => {
     db,
     env: process.env.NODE_ENV || "development",
   });
+});
+
+// 404 handler (JSON for the SPA/API)
+app.use((req, res) => {
+  res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl}` });
+});
+
+// Global error handler: always log the real backend error so it can be
+// identified in Vercel function logs, and return a safe JSON message.
+app.use((err, req, res, next) => {
+  const code = err.status || err.statusCode || 500;
+  const message = (err.response && err.response.data && (err.response.data.error || err.response.data.message))
+    || err.message || "Internal server error";
+  console.error(`[api-error] ${req.method} ${req.originalUrl} -> ${code}`, err);
+  res.status(code).json({ error: message });
 });
 
 module.exports = app;

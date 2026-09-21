@@ -1,5 +1,5 @@
 import { useEffect, useState, Fragment, useMemo } from "react";
-import API from "../services/api";
+import API, { readApiError } from "../services/api";
 import Icon from "../components/Icon";
 import ReportHeader from "../components/ReportHeader";
 import SearchBar from "../components/SearchBar";
@@ -43,7 +43,7 @@ export default function WeeklyReport() {
     const params = buildReportParams({ start_date: startDate, end_date: endDate }, { departments: filterDepts });
     API.get("/reports/weekly", { params })
       .then((r) => setData(r.data))
-      .catch((err) => setError(err.response?.data?.error || "Unable to load the weekly report. Please retry."))
+      .catch((err) => setError(readApiError(err, "Unable to load the weekly report. Please retry.")))
       .finally(() => setLoading(false));
   }, [startDate, endDate, filterDepts]);
 

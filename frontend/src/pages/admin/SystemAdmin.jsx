@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import API from "../../services/api";
+import API, { readApiError } from "../../services/api";
 import Icon from "../../components/Icon";
 
 const HUB_CARDS = [
@@ -53,7 +53,7 @@ export default function SystemAdmin() {
       setSyncResult(r.data.message || "Synchronization complete.");
       load();
     } catch (err) {
-      setSyncResult(`Sync failed: ${err.response?.data?.error || err.message}`);
+      setSyncResult(`Sync failed: ${readApiError(err, err.message || "Sync failed")}`);
     } finally {
       setSyncing(null);
     }

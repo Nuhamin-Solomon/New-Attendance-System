@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import API from "../services/api";
+import API, { readApiError } from "../services/api";
 import Icon from "../components/Icon";
 import Pagination from "../components/Pagination";
 import { useAuth } from "../context/AuthContext";
@@ -157,7 +157,7 @@ export default function Employees() {
       setEditEmp(null);
       fetchEmployees();
     } catch (err) {
-      alert(err.response?.data?.error || "Failed to save");
+      alert(readApiError(err, "Failed to save"));
     } finally {
       setSaving(false);
     }

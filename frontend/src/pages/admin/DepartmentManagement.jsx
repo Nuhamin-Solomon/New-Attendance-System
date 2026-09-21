@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import API from "../../services/api";
+import API, { readApiError } from "../../services/api";
 import Icon from "../../components/Icon";
 
 export default function DepartmentManagement() {
@@ -34,7 +34,7 @@ export default function DepartmentManagement() {
     try {
       await API.post("/departments", { name: deptName.trim() });
       setDeptName(""); setShowForm(false); load();
-    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const handleUpdate = async (e) => {
@@ -43,7 +43,7 @@ export default function DepartmentManagement() {
     try {
       await API.put(`/departments/${editDept.id}`, { name: deptName.trim() });
       setDeptName(""); setEditDept(null); setShowForm(false); load();
-    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const handleDelete = async (dept) => {
@@ -51,7 +51,7 @@ export default function DepartmentManagement() {
     try {
       await API.delete(`/departments/${dept.id}`);
       load();
-    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const handleAssignEmployee = async () => {
@@ -63,7 +63,7 @@ export default function DepartmentManagement() {
         assignment_type: assignType,
       });
       setAssignModal(null); setSelectedEmployeeId(""); setEmployeeSearch(""); load();
-    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    } catch (err) { alert(readApiError(err, "Failed")); }
     finally { setSubmitting(false); }
   };
 
@@ -76,7 +76,7 @@ export default function DepartmentManagement() {
         assignment_type: assignType,
       });
       setAssignModal(null); setSelectedUserId(""); setUserSearch(""); load();
-    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    } catch (err) { alert(readApiError(err, "Failed")); }
     finally { setSubmitting(false); }
   };
 
@@ -85,7 +85,7 @@ export default function DepartmentManagement() {
     try {
       await API.delete(`/departments/${deptId}/assignments/${assignmentId}`);
       load();
-    } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const openEdit = (dept) => {

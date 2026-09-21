@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import API from "../services/api";
+import API, { readApiError } from "../services/api";
 import Icon from "../components/Icon";
 import Pagination from "../components/Pagination";
 
@@ -39,7 +39,7 @@ export default function Leave() {
       setEditId(null);
       setForm({ leave_type_id: "", start_date: "", end_date: "", reason: "", supporting_doc_url: "" });
       load();
-    } catch (err) { alert(err.response?.data?.error || "Failed to submit"); }
+    } catch (err) { alert(readApiError(err, "Failed to submit")); }
   };
 
   const handleEdit = (l) => {
@@ -56,12 +56,12 @@ export default function Leave() {
 
   const handleCancel = async (id) => {
     if (!confirm("Cancel this leave request?")) return;
-    try { await API.put(`/leave/${id}/cancel`); load(); } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    try { await API.put(`/leave/${id}/cancel`); load(); } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const handleRecall = async (id) => {
     if (!confirm("Recall this approved leave? This will revert the attendance records and restore your leave balance.")) return;
-    try { await API.put(`/leave/${id}/recall`); load(); } catch (err) { alert(err.response?.data?.error || "Failed"); }
+    try { await API.put(`/leave/${id}/recall`); load(); } catch (err) { alert(readApiError(err, "Failed")); }
   };
 
   const statusFiltered = filter === "all" ? leaves : leaves.filter((l) => l.status === filter);

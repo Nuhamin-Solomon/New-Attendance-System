@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, Fragment } from "react";
-import API from "../services/api";
+import API, { readApiError } from "../services/api";
 import Icon from "../components/Icon";
 import ReportHeader from "../components/ReportHeader";
 import SearchBar from "../components/SearchBar";
@@ -34,7 +34,7 @@ export default function MonthlyReport() {
     setLoading(true);
     setError("");
     const params = buildReportParams({ start_date: startDate, end_date: endDate }, { departments: filterDepts });
-    API.get("/reports/monthly", { params }).then((r) => setData(r.data)).catch((err) => setError(err.response?.data?.error || "Unable to load the monthly report. Please retry.")).finally(() => setLoading(false));
+    API.get("/reports/monthly", { params }).then((r) => setData(r.data)).catch((err) => setError(readApiError(err, "Unable to load the monthly report. Please retry."))).finally(() => setLoading(false));
   }, [startDate, endDate, filterDepts]);
 
   useEffect(() => { setPage(1); }, [query, filterDepts]);
